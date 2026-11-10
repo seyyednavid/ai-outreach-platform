@@ -1,4 +1,5 @@
 
+import pytest
 from fastapi.testclient import TestClient
 
 VALID_LEAD = {
@@ -12,8 +13,16 @@ VALID_LEAD = {
 }
 
 
-def test_create_lead_success(client: TestClient):
-    response = client.post("/api/v1/leads", json=VALID_LEAD)
+@pytest.fixture(autouse=True)
+def cleanup_leads(clean_leads):
+    yield
+
+
+def test_create_lead_success(db_client: TestClient):
+    response = db_client.post(
+        "/api/v1/leads",
+        json=VALID_LEAD,
+    )
 
     assert response.status_code == 201
 
@@ -24,34 +33,40 @@ def test_create_lead_success(client: TestClient):
     assert data["recipient_email"] == "sarah@example.com"
 
 
-def test_get_lead_success(client: TestClient):
-    create_response = client.post(
+def test_get_lead_success(db_client: TestClient):
+    create_response = db_client.post(
         "/api/v1/leads",
         json=VALID_LEAD,
     )
 
+    assert create_response.status_code == 201
+
     lead_id = create_response.json()["id"]
 
-    response = client.get(f"/api/v1/leads/{lead_id}")
+    response = db_client.get(
+        f"/api/v1/leads/{lead_id}"
+    )
 
     assert response.status_code == 200
     assert response.json()["company_name"] == "Waitrose"
 
 
-def test_get_lead_not_found(client: TestClient):
-    response = client.get("/api/v1/leads/999999")
+def test_get_lead_not_found(db_client: TestClient):
+    response = db_client.get(
+        "/api/v1/leads/999999"
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Lead not found"
 
 
-def test_create_lead_invalid_email(client: TestClient):
+def test_create_lead_invalid_email(db_client: TestClient):
     invalid_lead = {
         **VALID_LEAD,
         "recipient_email": "not-an-email",
     }
 
-    response = client.post(
+    response = db_client.post(
         "/api/v1/leads",
         json=invalid_lead,
     )
@@ -59,13 +74,14 @@ def test_create_lead_invalid_email(client: TestClient):
     assert response.status_code == 422
 
 
-def test_create_lead_missing_company(client: TestClient):
+def test_create_lead_missing_company(db_client: TestClient):
     invalid_lead = {
         **VALID_LEAD,
     }
+
     del invalid_lead["company_name"]
 
-    response = client.post(
+    response = db_client.post(
         "/api/v1/leads",
         json=invalid_lead,
     )

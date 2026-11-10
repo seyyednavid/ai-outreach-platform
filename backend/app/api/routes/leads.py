@@ -2,9 +2,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.lead import Lead
 from app.schemas.lead import LeadCreate, LeadResponse
 from app.services import lead_service
 
@@ -48,3 +50,9 @@ def get_lead(
         )
 
     return lead
+
+
+@router.get("", response_model=list[LeadResponse])
+def list_leads(db: DbSession):
+    statement = select(Lead).order_by(Lead.id.desc())
+    return db.scalars(statement).all()
