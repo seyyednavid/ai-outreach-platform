@@ -1,6 +1,5 @@
 
 import { useEffect, useRef, useState } from "react";
-import GmailDraftPanel from "../components/GmailDraftPanel";
 import {
   AlertCircle,
   CheckCircle2,
@@ -16,7 +15,13 @@ import {
   runOutreach,
   type OutreachRun,
 } from "../api/outreach";
+
 import EmailEditor from "../components/EmailEditor";
+import GmailDraftPanel from "../components/GmailDraftPanel";
+import SolutionMatchingPanel from "../components/SolutionMatchingPanel";
+import ContactDiscoveryPanel from "../components/ContactDiscoveryPanel";
+import type { ReviewedContact } from "../api/contacts";
+
 
 const defaultOffering =
   "We provide queue management and customer flow solutions " +
@@ -40,10 +45,13 @@ export default function Outreach() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedContact, setSelectedContact] =
+  useState<ReviewedContact | null>(null);
 
   // Prevent old history responses from replacing a newer selection.
   const historyRequestRef = useRef(0);
 
+  // Load leads when the page opens.
   useEffect(() => {
     let cancelled = false;
 
@@ -73,10 +81,12 @@ export default function Outreach() {
     };
   }, []);
 
+  // Load outreach history for the selected lead.
   async function handleLeadChange(value: string) {
     const requestId = ++historyRequestRef.current;
 
     setLeadId(value);
+    setSelectedContact(null);
     setRuns([]);
     setSelectedRun(null);
     setError(null);
@@ -114,6 +124,7 @@ export default function Outreach() {
     }
   }
 
+  // Run the existing Research -> Write -> Review -> Improve workflow.
   async function handleRun() {
     if (!leadId || offering.trim().length < 10 || running) {
       return;
@@ -154,20 +165,23 @@ export default function Outreach() {
     );
   }
 
+  const selectedLeadId = leadId ? Number(leadId) : null;
+
   return (
     <div className="space-y-7">
-      {/* Page header */}
+      {/* Page Header */}
       <div>
         <h2 className="text-3xl font-bold">
           Outreach Workspace
         </h2>
 
         <p className="mt-2 text-slate-500">
-          Research companies, generate emails and review AI results.
+          Research companies, match products, discover contacts,
+          generate emails, and review AI results.
         </p>
       </div>
 
-      {/* General errors */}
+      {/* General Errors */}
       {error && (
         <div
           role="alert"
@@ -178,65 +192,83 @@ export default function Outreach() {
         </div>
       )}
 
-      {/* Generate Outreach */}
+      {/* Step 1: Select Lead */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="mb-5 text-lg font-semibold">
-          Generate Outreach
+          Step 1 — Select Target Lead
         </h3>
 
-        <div className="grid gap-5 md:grid-cols-2">
-          <label className="space-y-2 text-sm font-medium">
-            Select Lead
+        <label className="block space-y-2 text-sm font-medium">
+          Select Lead
 
-            <select
-              className={inputClass}
-              value={leadId}
-              disabled={loadingLeads || running}
-              onChange={(e) =>
-                void handleLeadChange(e.target.value)
-              }
-            >
-              <option value="">
-                Choose a company...
+          <select
+            className={inputClass}
+            value={leadId}
+            disabled={loadingLeads || running}
+            onChange={(event) =>
+              void handleLeadChange(event.target.value)
+            }
+          >
+            <option value="">
+              Choose a company...
+            </option>
+
+            {leads.map((lead) => (
+              <option key={lead.id} value={lead.id}>
+                {lead.company_name} (#{lead.id})
               </option>
+            ))}
+          </select>
+        </label>
 
-              {leads.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {lead.company_name} (#{lead.id})
-                </option>
-              ))}
-            </select>
-          </label>
+        {loadingLeads && (
+          <p className="mt-3 text-sm text-slate-500">
+            Loading leads...
+          </p>
+        )}
+      </section>
+        
+    {/* Step 2: AI Solution Matching */}
+    <SolutionMatchingPanel
+      key={`matching-${selectedLeadId ?? "no-lead"}`}
+      leadId={selectedLeadId}
+    />
 
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => void handleRun()}
-              disabled={
-                !leadId ||
-                offering.trim().length < 10 ||
-                running ||
-                loadingHistory
-              }
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {running ? (
-                <LoaderCircle
-                  size={18}
-                  className="animate-spin"
-                />
-              ) : (
-                <Play size={18} />
-              )}
+    {/* Step 3: Contact Discovery */}
+    <ContactDiscoveryPanel
+      key={`contacts-${selectedLeadId ?? "no-lead"}`}
+      leadId={selectedLeadId}
+      onSelectContact={setSelectedContact}
+    />
 
-              {running
-                ? "Running AI Agents..."
-                : "Run AI Outreach"}
-            </button>
-          </div>
-        </div>
 
-        <label className="mt-5 block space-y-2 text-sm font-medium">
+  {selectedContact && (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm">
+      <p className="font-semibold text-indigo-900">
+        Selected Contact: {selectedContact.name}
+      </p>
+      <p className="mt-1 text-indigo-700">
+        {selectedContact.job_title}
+      </p>
+      <p className="mt-2 text-xs text-indigo-600">
+        This contact has not yet been connected to
+        Email Generation.
+      </p>
+    </div>
+  )}
+
+      {/* Step 3: Generate Outreach */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-5 text-lg font-semibold">
+          Step 4 — Generate Outreach
+        </h3>
+
+        <p className="mb-5 text-sm text-slate-500">
+          Run the AI research, writing, review, and improvement
+          workflow for your selected lead.
+        </p>
+
+        <label className="block space-y-2 text-sm font-medium">
           Your Product / Service Offering
 
           <textarea
@@ -244,24 +276,56 @@ export default function Outreach() {
             rows={3}
             value={offering}
             disabled={running}
-            onChange={(e) =>
-              setOffering(e.target.value)
+            onChange={(event) =>
+              setOffering(event.target.value)
             }
           />
         </label>
+
+        <p className="mt-2 text-xs text-slate-500">
+          Currently, the email workflow uses the offering
+          entered above. The Solution Matching recommendation
+          is a separate preview and is not automatically
+          passed to the Writer Agent yet.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => void handleRun()}
+          disabled={
+            !leadId ||
+            offering.trim().length < 10 ||
+            running ||
+            loadingHistory
+          }
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+        >
+          {running ? (
+            <LoaderCircle
+              size={18}
+              className="animate-spin"
+            />
+          ) : (
+            <Play size={18} />
+          )}
+
+          {running
+            ? "Running AI Agents..."
+            : "Run AI Outreach"}
+        </button>
 
         {running && (
           <p
             role="status"
             className="mt-4 text-sm text-indigo-600"
           >
-            Researching, writing and reviewing your email.
+            Researching, writing, and reviewing your email.
             This can take a little while.
           </p>
         )}
       </section>
 
-      {/* History and results */}
+      {/* Step 4: History and Results */}
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_2fr]">
         {/* Run History */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -270,6 +334,7 @@ export default function Outreach() {
               size={19}
               className="text-indigo-600"
             />
+
             <h3 className="font-semibold">
               Run History
             </h3>
@@ -281,7 +346,7 @@ export default function Outreach() {
             </p>
           ) : runs.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Select a company to see its outreach history.
+              Select a lead to see its outreach history.
             </p>
           ) : (
             <div className="space-y-2">
@@ -338,28 +403,29 @@ export default function Outreach() {
                 className="mx-auto mb-3"
                 size={32}
               />
+
               Run the workflow or select a previous result.
             </section>
           ) : (
             <>
-              {/* Editable email with human approval */}
+              {/* Editable Email and Human Approval */}
               <EmailEditor
                 key={selectedRun.id}
                 run={selectedRun}
                 onUpdate={handleRunUpdate}
               />
 
-
+              {/* Gmail Draft */}
               <GmailDraftPanel
                 key={selectedRun.id}
                 run={selectedRun}
                 recipientEmail={
                   leads.find(
-                    (lead) => lead.id === selectedRun.lead_id,
+                    (lead) =>
+                      lead.id === selectedRun.lead_id,
                   )?.recipient_email ?? ""
                 }
               />
-
 
               {/* AI Review */}
               <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -376,6 +442,7 @@ export default function Outreach() {
 
                 <p className="mt-4 text-3xl font-bold">
                   {selectedRun.review.overall_score}
+
                   <span className="text-lg font-normal text-slate-400">
                     /10
                   </span>
@@ -422,7 +489,8 @@ export default function Outreach() {
                   </strong>
                 </p>
 
-                {selectedRun.review.unsupported_claims.length > 0 && (
+                {selectedRun.review.unsupported_claims.length >
+                  0 && (
                   <div className="mt-4 text-sm text-red-700">
                     <p className="font-semibold">
                       Unsupported Claims
@@ -430,8 +498,8 @@ export default function Outreach() {
 
                     <ul className="mt-2 list-disc pl-5">
                       {selectedRun.review.unsupported_claims.map(
-                        (claim, i) => (
-                          <li key={i}>
+                        (claim, index) => (
+                          <li key={index}>
                             {claim}
                           </li>
                         ),
@@ -440,7 +508,8 @@ export default function Outreach() {
                   </div>
                 )}
 
-                {selectedRun.review.improvement_suggestions.length > 0 && (
+                {selectedRun.review.improvement_suggestions
+                  .length > 0 && (
                   <div className="mt-4 text-sm">
                     <p className="font-semibold">
                       Suggestions
@@ -448,8 +517,8 @@ export default function Outreach() {
 
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
                       {selectedRun.review.improvement_suggestions.map(
-                        (suggestion, i) => (
-                          <li key={i}>
+                        (suggestion, index) => (
+                          <li key={index}>
                             {suggestion}
                           </li>
                         ),
@@ -459,12 +528,12 @@ export default function Outreach() {
                 )}
 
                 <p className="mt-4 text-xs text-slate-500">
-                  AI scores refer to the generated draft, not
-                  any subsequent human edits.
+                  AI scores refer to the generated draft,
+                  not any subsequent human edits.
                 </p>
               </section>
 
-              {/* Research */}
+              {/* Company Research */}
               <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h3 className="text-lg font-semibold">
                   Company Research
@@ -472,12 +541,14 @@ export default function Outreach() {
 
                 <div className="mt-4 space-y-3">
                   {selectedRun.research.verified_findings.map(
-                    (finding, i) => (
+                    (finding, index) => (
                       <div
-                        key={i}
+                        key={index}
                         className="text-sm"
                       >
-                        <p>{finding.claim}</p>
+                        <p>
+                          {finding.claim}
+                        </p>
 
                         <a
                           href={finding.source_url}
