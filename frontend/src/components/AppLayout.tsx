@@ -1,51 +1,41 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Building2,
   FilePlus,
   Inbox,
   LayoutDashboard,
   Gauge,
+  ListTree,
   LogOut,
   Users,
 } from "lucide-react";
 
-import { getMe } from "../api/admin";
 import { useAuth } from "../auth/auth-context";
 
 // In the order you use them: set up, then write, then review.
 const navigation = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/company", label: "My Company", icon: Building2 },
   { to: "/leads", label: "Leads", icon: Users },
   { to: "/outreach", label: "New draft", icon: FilePlus },
   { to: "/drafts", label: "Drafts", icon: Inbox },
 ];
 
+// The product owner's console: every customer, cost and AI quality.
+const ownerNavigation = [
+  { to: "/owner", label: "Overview", icon: Gauge },
+  { to: "/owner/customers", label: "Customers", icon: Building2 },
+  { to: "/owner/runs", label: "Runs", icon: ListTree },
+];
+
 const pipeline = ["Research", "Write", "Review", "Improve ×2", "You approve", "Gmail draft"];
 
 export default function AppLayout() {
-  const { session, signOut } = useAuth();
+  const { session, signOut, isOwner } = useAuth();
   const email = session?.user.email ?? "";
-  const [isOwner, setIsOwner] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getMe()
-      .then((me) => {
-        if (!cancelled) setIsOwner(me.is_admin);
-      })
-      .catch(() => {
-        // Not critical: the Usage link just stays hidden.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const links = isOwner
-    ? [...navigation, { to: "/usage", label: "Usage", icon: Gauge }]
-    : navigation;
+  const { pathname } = useLocation();
+  const inConsole = isOwner === true && pathname.startsWith("/owner");
+  const links = inConsole ? ownerNavigation : navigation;
 
   return (
     <div className="min-h-screen bg-paper text-ink md:flex">
@@ -63,9 +53,36 @@ export default function AppLayout() {
               <p className="font-display text-lg font-bold leading-none tracking-tight">
                 AI Outreach
               </p>
-              <p className="mt-1 text-xs text-white/55">Human-approved drafts</p>
+              <p className="mt-1 text-xs text-white/55">
+                {inConsole ? "Owner console" : "Human-approved drafts"}
+              </p>
             </div>
           </div>
+
+          {/* Owners switch between their console and their own workspace. */}
+          {isOwner && (
+            <div
+              role="group"
+              aria-label="Area"
+              className="mt-4 grid grid-cols-2 gap-1 rounded-md bg-white/5 p-1 md:mt-6"
+            >
+              {[
+                { to: "/owner", label: "Console", active: inConsole },
+                { to: "/dashboard", label: "Workspace", active: !inConsole },
+              ].map((area) => (
+                <NavLink
+                  key={area.to}
+                  to={area.to}
+                  aria-current={area.active ? "page" : undefined}
+                  className={`rounded px-2 py-1.5 text-center text-xs font-semibold transition-colors ${
+                    area.active ? "bg-white text-ink" : "text-white/65 hover:text-white"
+                  }`}
+                >
+                  {area.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
 
           {/* Navigation */}
           <nav
@@ -76,7 +93,7 @@ export default function AppLayout() {
               <NavLink
                 key={to}
                 to={to}
-                end={to === "/"}
+                end={to === "/owner"}
                 className={({ isActive }) =>
                   `flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium transition-colors md:gap-3 md:px-3 md:py-2.5 ${
                     isActive
@@ -92,7 +109,7 @@ export default function AppLayout() {
           </nav>
 
           {/* The real sequence every draft goes through */}
-          <div className="mt-auto hidden pt-8 md:block">
+          <div className={`mt-auto hidden pt-8 ${inConsole ? "" : "md:block"}`}>
             <p className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-white/45">
               Every draft
             </p>

@@ -22,3 +22,6 @@ node_modules/
 
 # Personal notes and reports, never committed
 Extra/
+
+# Output of scripts/simulate_customers.py
+simulation_results*.json

@@ -268,3 +268,41 @@ def test_owner_sees_usage_per_customer(
 
     assert usage["total_drafts"] == 2
     assert usage["total_tokens"] == 11_000
+
+
+def test_owner_overview_counts_quality_and_guardrails(
+    db_client: TestClient, seed_fixture: Seed  # noqa: F811
+):
+    passed = make_result(approved=True).model_copy(
+        update={"trace_id": "trace_cccccccccccccccccccccccccccccccc", "llm_requests": 3,
+                "input_tokens": 4_000, "output_tokens": 400}
+    )
+    failed = make_result(approved=False).model_copy(update={"improvement_count": 2})
+
+    with patch("app.api.routes.outreach.run_outreach", new_callable=AsyncMock, return_value=passed):
+        good = db_client.post("/api/v1/outreach/run", json=run_payload(seed_fixture)).json()
+    with patch("app.api.routes.outreach.run_outreach", new_callable=AsyncMock, return_value=failed):
+        bad = db_client.post("/api/v1/outreach/run", json=run_payload(seed_fixture)).json()
+
+    db_client.post(f"/api/v1/outreach/runs/{good['id']}/approve")
+    db_client.post(
+        f"/api/v1/outreach/runs/{bad['id']}/approve", json={"acknowledge_failed_review": True}
+    )
+
+    with patch.object(settings, "admin_emails", "tester@example.com"):
+        overview = db_client.get("/api/v1/admin/overview").json()
+        runs = db_client.get("/api/v1/admin/runs").json()
+
+    quality = overview["quality"]
+    assert overview["drafts"] == 2
+    assert (quality["ai_passed"], quality["first_try_passed"]) == (1, 1)
+    assert quality["average_rewrites"] == 1.0
+    assert (quality["human_approved"], quality["overrides"]) == (2, 1)
+    assert quality["flags_kept"] == 1  # the failed draft's remaining flag
+    # Only the run with recorded usage counts towards cost per draft.
+    assert overview["average_cost_per_draft_usd"] == pytest.approx(overview["estimated_cost_usd"])
+
+    assert [run["id"] for run in runs] == [bad["id"], good["id"]]
+    assert runs[0]["organization_name"] == "Test org"
+    assert runs[0]["review_override"] is True
+    assert USAGE_FIELDS - {"trace_url", "recheck_trace_url"} <= set(runs[0])

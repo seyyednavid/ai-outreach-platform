@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 
 import {
-  getOrganizationRuns,
+  getRecentRuns,
   getUsage,
   type OrganizationUsage,
   type RunUsage,
@@ -24,8 +24,8 @@ function date(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
-/** Owner only: AI usage and cost per customer, with links to traces. */
-export default function Usage() {
+/** Owner Console: AI usage and cost per customer, with links to traces. */
+export default function OwnerCustomers() {
   const [usage, setUsage] = useState<UsageOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,8 +72,8 @@ export default function Usage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Usage"
-        description="Owner only. AI usage and estimated cost per customer, with links to the agent traces. Customers never see this page."
+        title="Customers"
+        description="AI usage and estimated cost per customer. Open a customer to see their runs and traces. Customers never see the Owner Console."
         actions={
           <Button variant="secondary" icon={RefreshCw} loading={loading} disabled={loading} onClick={() => void load()}>
             Refresh
@@ -187,7 +187,7 @@ function CustomerRuns({ organizationId }: { organizationId: number }) {
 
   useEffect(() => {
     let cancelled = false;
-    getOrganizationRuns(organizationId)
+    getRecentRuns(organizationId)
       .then((data) => {
         if (!cancelled) setRuns(data);
       })

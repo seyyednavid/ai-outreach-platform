@@ -59,7 +59,17 @@ Agents are non-deterministic, so every draft is recorded as **one trace** in the
 
 - The trace id is saved on the run. Traces, tokens and costs are **owner data**: customers never see them, and the API does not return them to customers.
 - An AI check of your edits gets its own trace in the same group as the draft.
-- Every run stores its token usage and an estimated cost. The owner's **Usage** page (accounts listed in `ADMIN_EMAILS`) shows usage per customer and links each run to its trace. Per-account usage limits can later build on this. For everyone else, the owner routes return 404.
+- Every run stores its token usage and an estimated cost. Per-account usage limits can later build on this.
+
+### Owner Console
+
+Product owners (accounts listed in `ADMIN_EMAILS`) start in a separate **Owner Console**, and can switch to their own workspace at any time. The console has three pages:
+
+- **Overview:** customers, drafts and model cost. It also shows AI quality (pass rate, passes without a rewrite, average score) and how often code and people stepped in: reviewer flags dropped by code, placeholders, missing signatures, human edits and approvals that override a failed review.
+- **Customers:** usage and cost per customer, with each customer's runs.
+- **Runs:** the latest runs of every customer, each linked to its trace.
+
+The console shows usage, never email content. For everyone else, the owner routes return 404.
 - `TRACE_INCLUDE_SENSITIVE_DATA=false` keeps email text and names out of traces.
 - Tests disable tracing, so they never send data to OpenAI.
 
@@ -103,6 +113,19 @@ On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
 **First use:** create an account and confirm your email, then add your company, a product and your signature in **My Company**, add a lead in **Leads**, then open **New draft**.
 
+## Simulating customers
+
+`backend/scripts/simulate_customers.py` creates demo customers, each with its own seller company, products, signature and leads. Ten of the leads are real public companies and two are fictional. The script then drives the same route functions the browser uses, with the **real agents**: product matching, contact discovery, draft generation, a human edit that adds an unsupported claim, the AI check of that edit, and approval. The results appear in the Owner Console and in the traces.
+
+```bash
+cd backend
+uv run python -m scripts.simulate_customers --customers 1 --leads 1   # smoke test
+uv run python -m scripts.simulate_customers                            # 4 customers, 12 drafts
+uv run python -m scripts.simulate_customers --cleanup                  # delete all demo data
+```
+
+Demo customers are named `[Demo] …` and cannot sign in. A full run costs well under $1 in model tokens, plus web search fees.
+
 ## Tests
 
 Agent and Gmail calls are mocked, so the tests cost nothing and need no API keys.
@@ -112,7 +135,7 @@ docker exec ai-outreach-db createdb -U outreach outreach_test_db   # once
 
 cd backend
 uv run ruff check .
-uv run python -m pytest            # 135 tests
+uv run python -m pytest            # 136 tests
 
 cd ../frontend
 npm run lint
@@ -129,10 +152,11 @@ backend/
   app/workflows/    the outreach pipeline and its code checks
   app/services/     database logic, source checks, Gmail
   app/api/routes/   FastAPI endpoints
+  scripts/          demo customer simulation with the real agents
   alembic/          database migrations
   test/             pytest suite
 frontend/src/
-  pages/            Dashboard, My Company, Leads, New draft, Drafts
+  pages/            Dashboard, My Company, Leads, New draft, Drafts, Owner Console
   components/       shared UI and review components
 docs/screenshots/
 ```
