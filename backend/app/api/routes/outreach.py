@@ -49,6 +49,13 @@ async def run_outreach_for_lead(
         sender_offering=request.sender_offering,
         outreach_context=prepared.outreach_context,
         signature=prepared.signature,
+        metadata={
+            "organization_id": user.organization_id,
+            "lead_id": lead.id,
+            "seller_company_id": request.seller_company_id,
+            "product_selected": request.selected_product_id is not None,
+            "contact_selected": request.selected_contact is not None,
+        },
     )
     result = outreach_service.flag_missing_signature(result, prepared.signature)
 

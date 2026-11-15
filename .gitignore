@@ -19,3 +19,6 @@ wheels/
 node_modules/
 
 **/.gmail_tokens.json
+
+# Personal notes and reports, never committed
+Extra/

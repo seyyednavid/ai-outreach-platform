@@ -3,6 +3,7 @@ from agents import set_default_openai_key
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.admin import router as admin_router
 from app.api.routes.companies import router as companies_router
 from app.api.routes.contact_discovery import router as contact_discovery_router
 from app.api.routes.dashboard import router as dashboard_router
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(companies_router, prefix="/api/v1")
     app.include_router(matching_router, prefix="/api/v1")
     app.include_router(contact_discovery_router, prefix="/api/v1")
+    app.include_router(admin_router, prefix="/api/v1")
 
     return app
 

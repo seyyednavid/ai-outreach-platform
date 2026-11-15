@@ -12,6 +12,7 @@ import Leads from "./pages/Leads";
 import Login from "./pages/Login";
 import MyCompany from "./pages/MyCompany";
 import Outreach from "./pages/Outreach";
+import Usage from "./pages/Usage";
 
 export default function App() {
   return (
@@ -58,6 +59,8 @@ function SignedInApp() {
         {/* Outreach is two pages: write a new draft, then review drafts. */}
         <Route path="/outreach" element={<Outreach />} />
         <Route path="/drafts" element={<Drafts />} />
+        {/* Owner only: the API returns 404 to everyone else. */}
+        <Route path="/usage" element={<Usage />} />
       </Route>
     </Routes>
   );

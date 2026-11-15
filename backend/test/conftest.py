@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable, Generator
 
 import pytest
+from agents import set_tracing_disabled
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
@@ -17,13 +18,16 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.services.user_service import CurrentUser
 
+# Tests never send traces to OpenAI. Trace ids are still generated.
+set_tracing_disabled(True)
+
 # --------------------------------------------------
 # Test database configuration
 # --------------------------------------------------
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg://outreach:local_dev_password@localhost:5433/outreach_test_db",
+    "postgresql+psycopg://outreach:local_dev_password@127.0.0.1:5433/outreach_test_db",
 )
 
 # Safety: never run tests against the development DB
@@ -172,4 +176,23 @@ def clean_leads(setup_test_database):
 
     with TestSessionLocal() as session:
         session.query(Lead).delete()
+        session.commit()
+
+
+@pytest.fixture
+def clean_db(setup_test_database):
+    """
+    Delete everything a test created (runs, products, companies, leads).
+    The two shared test users and their organisations are kept.
+    """
+    yield
+
+    from app.models.company import Company
+    from app.models.company_product import CompanyProduct
+    from app.models.lead import Lead
+    from app.models.outreach_run import OutreachRun
+
+    with TestSessionLocal() as session:
+        for model in (OutreachRun, CompanyProduct, Company, Lead):
+            session.query(model).delete()
         session.commit()

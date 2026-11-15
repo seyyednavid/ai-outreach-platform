@@ -34,7 +34,7 @@ flowchart TD
     H --> G["Gmail draft<br/>(never sent automatically)"]
 ```
 
-Two more agents support the first step: a **solution-matching agent** that may only recommend a product ID from your catalogue (the backend rejects any other ID), and a **contact-discovery agent** whose results are ranked and source-checked in Python.
+Two more agents support the first step: a **solution-matching agent** that may only recommend a product ID from your catalogue (the backend rejects any other ID), and a **contact-discovery agent** that runs three focused searches in parallel: the company's leadership pages, appointment news and trade press. Traces showed that a single run usually stops after one web search, so the code makes sure the search is broad. Python then merges, de-duplicates, ranks and source-checks the results, and rejects anything that is not a named person, such as "Customer Service Team".
 
 All agents return typed, structured output (Pydantic models), so the backend never parses free text.
 
@@ -52,6 +52,18 @@ All agents return typed, structured output (Pydantic models), so the backend nev
 | Contact sources are checked | The page is fetched over HTTPS only (allowlisted sites and the lead's own website), with no redirects and a size limit |
 | Each account sees only its own data | One login check (`get_current_user`) on every route, and every query filters by organisation. Other accounts' records return 404 |
 | Gmail access is minimal | OAuth with PKCE and state checks, compose scope, drafts only. Tokens are stored per user, encrypted |
+
+### Tracing and cost
+
+Agents are non-deterministic, so every draft is recorded as **one trace** in the OpenAI Traces dashboard. The trace shows each agent call, web search, model response and timing. It also shows the decisions made by code: which reviewer flags were dropped, whether the review passed, and whether code changed the signature or call to action.
+
+- The trace id is saved on the run. Traces, tokens and costs are **owner data**: customers never see them, and the API does not return them to customers.
+- An AI check of your edits gets its own trace in the same group as the draft.
+- Every run stores its token usage and an estimated cost. The owner's **Usage** page (accounts listed in `ADMIN_EMAILS`) shows usage per customer and links each run to its trace. Per-account usage limits can later build on this. For everyone else, the owner routes return 404.
+- `TRACE_INCLUDE_SENSITIVE_DATA=false` keeps email text and names out of traces.
+- Tests disable tracing, so they never send data to OpenAI.
+
+The SDK's built-in tracing needs no extra infrastructure. Because the SDK supports trace processors, Langfuse or OpenTelemetry can be added later without changing the workflow code.
 
 ## Screenshots
 
@@ -100,7 +112,7 @@ docker exec ai-outreach-db createdb -U outreach outreach_test_db   # once
 
 cd backend
 uv run ruff check .
-uv run python -m pytest            # 115 tests
+uv run python -m pytest            # 135 tests
 
 cd ../frontend
 npm run lint
@@ -140,4 +152,4 @@ Every account uses the server's OpenAI key, so before deploying, turn off public
 Contact discovery is best-effort, and every contact must be reviewed by a person.
 Before any commercial use, finding contacts and sending cold emails must comply with UK GDPR and PECR.
 
-**Next:** GitHub Actions CI · Docker images · Terraform deployment · background jobs · agent tracing and cost tracking · an evaluation set for draft quality.
+**Next:** GitHub Actions CI · Docker images · Terraform deployment · background jobs · per-account usage limits · Langfuse or OpenTelemetry export · an evaluation set for draft quality.

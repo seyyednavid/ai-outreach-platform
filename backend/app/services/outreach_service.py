@@ -1,12 +1,15 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 
+from agents import gen_trace_id, trace
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.research_agent import ResearchReport
 from app.agents.writer_agent import EmailDraft
+from app.core.tracing import UsageTotals, trace_metadata
 from app.models.company import Company
 from app.models.company_product import CompanyProduct
 from app.models.lead import Lead
@@ -318,6 +321,15 @@ def save_outreach_run(
         improved=result.improved,
         improvement_count=result.improvement_count,
         requires_human_review=result.requires_human_review,
+        trace_id=result.trace_id,
+        llm_requests=result.llm_requests,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        estimated_cost_usd=Decimal(str(UsageTotals(
+            requests=result.llm_requests,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        ).estimated_cost_usd)),
     )
 
     db.add(run)
@@ -325,6 +337,14 @@ def save_outreach_run(
     db.refresh(run)
 
     return run
+
+
+def record_usage(run: OutreachRun, usage: UsageTotals) -> None:
+    """Add the tokens of a later agent call (an edit check) to the run."""
+    run.llm_requests += usage.requests
+    run.input_tokens += usage.input_tokens
+    run.output_tokens += usage.output_tokens
+    run.estimated_cost_usd += Decimal(str(usage.estimated_cost_usd))
 
 
 def get_outreach_run(
@@ -402,14 +422,31 @@ async def recheck_draft(
     lead = db.get(Lead, run.lead_id)
     snapshot = snapshot_for_recheck(db, run)
 
-    review = await review_email(
-        draft=EmailDraft.model_validate(run.final_email),
-        research=ResearchReport.model_validate(run.research),
-        sender_offering=snapshot.sender_offering,
-        context=build_agent_context(lead, snapshot),
-    )
+    usage = UsageTotals()
+    trace_id = gen_trace_id()
+
+    with trace(
+        "Check human edits",
+        trace_id=trace_id,
+        # Shown together with the trace that generated the draft.
+        group_id=run.trace_id or trace_id,
+        metadata=trace_metadata(
+            run_id=run.id,
+            lead_id=run.lead_id,
+            organization_id=run.organization_id,
+        ),
+    ):
+        review = await review_email(
+            draft=EmailDraft.model_validate(run.final_email),
+            research=ResearchReport.model_validate(run.research),
+            sender_offering=snapshot.sender_offering,
+            context=build_agent_context(lead, snapshot),
+            usage=usage,
+        )
 
     run.final_review = review.model_dump(mode="json")
+    run.recheck_trace_id = trace_id
+    record_usage(run, usage)
 
     db.commit()
     db.refresh(run)

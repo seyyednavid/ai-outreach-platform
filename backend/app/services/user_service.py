@@ -17,6 +17,16 @@ class CurrentUser:
     organization_id: int
 
 
+def is_admin(email: str | None) -> bool:
+    """A product owner, listed in ADMIN_EMAILS. Not a customer role."""
+    admins = {
+        item.strip().lower()
+        for item in settings.admin_emails.split(",")
+        if item.strip()
+    }
+    return bool(email) and email.strip().lower() in admins
+
+
 def unclaimed_organization(db: Session) -> Organization | None:
     """The organisation created for data from before login existed."""
     return db.scalar(

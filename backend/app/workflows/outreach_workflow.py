@@ -2,13 +2,14 @@
 import json
 import re
 
-from agents import Runner
+from agents import Agent, Runner, RunResult, custom_span, gen_trace_id, trace
 from pydantic import BaseModel
 
 from app.agents.improver_agent import improver_agent
 from app.agents.research_agent import ResearchReport, research_agent
 from app.agents.reviewer_agent import EmailReview, ReviewerOutput, reviewer_agent
 from app.agents.writer_agent import EmailDraft, writer_agent
+from app.core.tracing import UsageTotals, run_config, trace_metadata
 
 MAX_IMPROVEMENTS = 2
 MIN_APPROVAL_SCORE = 8.0
@@ -22,6 +23,12 @@ class OutreachResult(BaseModel):
     improved: bool
     improvement_count: int
     requires_human_review: bool = True
+
+    # One trace per draft, and the tokens it used.
+    trace_id: str | None = None
+    llm_requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 def build_prompt(task: str, **context: object) -> str:
@@ -223,17 +230,48 @@ def _drop_second_ask(body: str, cta: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+async def run_agent(
+    agent: Agent,
+    prompt: str,
+    usage: UsageTotals | None = None,
+) -> RunResult:
+    """Every agent call: same trace settings, tokens added to the total."""
+    result = await Runner.run(agent, prompt, run_config=run_config())
+
+    if usage is not None:
+        usage.add(result)
+
+    return result
+
+
+def finalize_traced(email: EmailDraft, signature: str | None) -> EmailDraft:
+    """finalize_draft, recorded as a span so the trace shows code edits."""
+    final = finalize_draft(email, signature)
+
+    with custom_span(
+        "Code: signature and call to action",
+        data={
+            "changed_by_code": final.body != email.body,
+            "signature_added": signature is not None,
+        },
+    ):
+        pass
+
+    return final
+
+
 async def review_email(
     draft: EmailDraft,
     research: ResearchReport,
     sender_offering: str,
     context: dict[str, object],
+    usage: UsageTotals | None = None,
 ) -> EmailReview:
     """
     Run the Reviewer once. Used inside the workflow and again
     when a human asks for their edited draft to be checked.
     """
-    result = await Runner.run(
+    result = await run_agent(
         reviewer_agent,
         build_prompt(
             "Review this email against the "
@@ -249,9 +287,24 @@ async def review_email(
             approved_product_facts=context.get("selected_product"),
             outreach_context=context,
         ),
+        usage,
     )
 
-    return to_email_review(result.final_output, draft)
+    review = to_email_review(result.final_output, draft)
+
+    # What the code decided about the reviewer's answer.
+    with custom_span(
+        "Code: review checks",
+        data={
+            "score": review.overall_score,
+            "flags_kept": len(review.unsupported_claims),
+            "flags_ignored": len(review.ignored_claims),
+            "passed": passes_review(review),
+        },
+    ):
+        pass
+
+    return review
 
 
 async def run_outreach(
@@ -259,22 +312,58 @@ async def run_outreach(
     sender_offering: str,
     outreach_context: dict[str, object] | None = None,
     signature: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> OutreachResult:
+    """
+    All agent calls for one draft are recorded in a single trace,
+    whose id is returned so it can be saved with the run.
+    """
+    trace_id = gen_trace_id()
+    usage = UsageTotals()
 
+    with trace(
+        "Outreach draft",
+        trace_id=trace_id,
+        # Later checks of this draft's edits join the same group.
+        group_id=trace_id,
+        metadata=trace_metadata(**(metadata or {})),
+    ):
+        result = await _run_outreach_steps(
+            company_info, sender_offering, outreach_context, signature, usage
+        )
+
+    return result.model_copy(
+        update={
+            "trace_id": trace_id,
+            "llm_requests": usage.requests,
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+        }
+    )
+
+
+async def _run_outreach_steps(
+    company_info: str,
+    sender_offering: str,
+    outreach_context: dict[str, object] | None,
+    signature: str | None,
+    usage: UsageTotals,
+) -> OutreachResult:
     # Maintain compatibility with the existing workflow.
     context = outreach_context or {}
     safety_rules = build_safety_rules(context)
 
     # Step 1: Research the target company.
-    research_result = await Runner.run(
+    research_result = await run_agent(
         research_agent,
         company_info,
+        usage,
     )
 
     research: ResearchReport = research_result.final_output
 
     # Step 2: Write the email using all selected context.
-    write_result = await Runner.run(
+    write_result = await run_agent(
         writer_agent,
         build_prompt(
             "Write a personalized B2B outreach email. "
@@ -283,12 +372,13 @@ async def run_outreach(
             sender_offering=sender_offering,
             outreach_context=context,
         ),
+        usage,
     )
 
-    email: EmailDraft = finalize_draft(write_result.final_output, signature)
+    email: EmailDraft = finalize_traced(write_result.final_output, signature)
 
     # Step 3: Review the generated email.
-    review = await review_email(email, research, sender_offering, context)
+    review = await review_email(email, research, sender_offering, context, usage)
 
     improvement_count = 0
 
@@ -297,7 +387,7 @@ async def run_outreach(
         not passes_review(review)
         and improvement_count < MAX_IMPROVEMENTS
     ):
-        improve_result = await Runner.run(
+        improve_result = await run_agent(
             improver_agent,
             build_prompt(
                 "Improve the email using review feedback "
@@ -309,13 +399,14 @@ async def run_outreach(
                 sender_offering=sender_offering,
                 outreach_context=context,
             ),
+            usage,
         )
 
-        email = finalize_draft(improve_result.final_output, signature)
+        email = finalize_traced(improve_result.final_output, signature)
         improvement_count += 1
 
         # Re-review every improved draft.
-        review = await review_email(email, research, sender_offering, context)
+        review = await review_email(email, research, sender_offering, context, usage)
 
     # Step 5: Final AI decision.
     return OutreachResult(

@@ -1,7 +1,8 @@
 
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -66,6 +67,22 @@ class OutreachRun(Base):
     improved: Mapped[bool]
     improvement_count: Mapped[int]
     requires_human_review: Mapped[bool]
+
+    # Tracing: the trace of the generation, and of the latest AI check
+    # of the human's edits (same group in the trace dashboard).
+    trace_id: Mapped[str | None] = mapped_column(String(64))
+    recheck_trace_id: Mapped[str | None] = mapped_column(String(64))
+
+    # Model usage of every agent call for this run, edit checks included.
+    llm_requests: Mapped[int] = mapped_column(default=0, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(default=0, server_default="0")
+    # At the prices configured when the tokens were used.
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(10, 6),
+        default=Decimal(0),
+        server_default="0",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
