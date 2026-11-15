@@ -14,5 +14,7 @@ class LeadCreate(BaseModel):
 
 class LeadResponse(LeadCreate):
     id: int
+    # Number of outreach runs; deleting the lead deletes them too.
+    run_count: int = 0
 
     model_config = {"from_attributes": True}

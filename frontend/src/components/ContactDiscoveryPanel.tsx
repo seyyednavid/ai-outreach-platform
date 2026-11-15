@@ -1,79 +1,36 @@
-
 import { useRef, useState } from "react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ExternalLink,
-  LoaderCircle,
-  Mail,
-  Search,
-  ShieldAlert,
-  Target,
-  UserCheck,
-  Users,
-} from "lucide-react";
+import { CheckCircle2, ExternalLink, Search, UserCheck, UserX, Users } from "lucide-react";
 
 import {
   discoverContacts,
   type ContactDiscoveryResponse,
   type ReviewedContact,
 } from "../api/contacts";
+import { Badge, Button, Card, CardHeader, Notice, type Tone } from "./ui";
+import { getErrorMessage } from "./ui-classes";
 
 interface Props {
+  step: number;
   leadId: number | null;
   onSelectContact?: (contact: ReviewedContact | null) => void;
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "Contact discovery failed";
-}
-
-function getEvidenceLabel(status: string): string {
-  switch (status) {
-    case "VERIFIED":
-      return "Source checked";
-    case "NEEDS_REVIEW":
-      return "Needs Review";
-    case "REJECTED":
-      return "Rejected";
-    case "EXCERPT_CONSISTENT":
-      return "Excerpt Only";
-    default:
-      return status;
-  }
-}
-
-function getEvidenceStyle(status: string): string {
-  switch (status) {
-    case "VERIFIED":
-      return "bg-emerald-100 text-emerald-800";
-    case "REJECTED":
-      return "bg-red-100 text-red-800";
-    default:
-      return "bg-amber-100 text-amber-800";
-  }
-}
+const evidence: Record<string, { label: string; tone: Tone }> = {
+  VERIFIED: { label: "Source checked", tone: "ok" },
+  EXCERPT_CONSISTENT: { label: "Excerpt only", tone: "warn" },
+  NEEDS_REVIEW: { label: "Needs review", tone: "warn" },
+  REJECTED: { label: "Rejected", tone: "bad" },
+};
 
 function contactKey(contact: ReviewedContact): string {
-  return [
-    contact.name.trim().toLowerCase(),
-    contact.company_name.trim().toLowerCase(),
-    contact.job_title.trim().toLowerCase(),
-  ].join("|");
+  return [contact.name, contact.company_name, contact.job_title]
+    .map((part) => part.trim().toLowerCase())
+    .join("|");
 }
 
-export default function ContactDiscoveryPanel({
-  leadId,
-  onSelectContact,
-}: Props) {
-  const [result, setResult] =
-    useState<ContactDiscoveryResponse | null>(null);
-
-  const [selectedKey, setSelectedKey] =
-    useState<string | null>(null);
-
+export default function ContactDiscoveryPanel({ step, leadId, onSelectContact }: Props) {
+  const [result, setResult] = useState<ContactDiscoveryResponse | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,7 +39,6 @@ export default function ContactDiscoveryPanel({
 
   async function handleDiscover() {
     if (leadId === null || discovering) return;
-
     const requestId = ++requestIdRef.current;
 
     setDiscovering(true);
@@ -93,331 +49,180 @@ export default function ContactDiscoveryPanel({
 
     try {
       const response = await discoverContacts(leadId);
-
       if (requestId !== requestIdRef.current) return;
-
       setResult(response);
     } catch (err: unknown) {
       if (requestId !== requestIdRef.current) return;
-
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(err, "Contact search failed. Try again."));
     } finally {
-      if (requestId === requestIdRef.current) {
-        setDiscovering(false);
-      }
+      if (requestId === requestIdRef.current) setDiscovering(false);
     }
   }
 
   function handleSelect(contact: ReviewedContact) {
     if (contact.evidence_status === "REJECTED") return;
-
     const key = contactKey(contact);
-
     if (selectedKey === key) {
-      setSelectedKey(null);
-      onSelectContact?.(null);
+      clearSelection();
       return;
     }
-
     setSelectedKey(key);
     onSelectContact?.(contact);
   }
 
+  function clearSelection() {
+    setSelectedKey(null);
+    onSelectContact?.(null);
+  }
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-5 flex items-start gap-3">
-        <div className="rounded-xl bg-indigo-100 p-3 text-indigo-600">
-          <Users size={22} />
-        </div>
+    <Card className="p-5 md:p-6">
+      <CardHeader
+        step={step}
+        title="Choose a contact"
+        tag={<Badge>Optional</Badge>}
+        description="Searches public sources for people in the lead's target role. Job titles and employers may be out of date."
+        actions={
+          selectedKey && (
+            <Button variant="ghost" size="sm" icon={UserX} onClick={clearSelection}>
+              Continue without contact
+            </Button>
+          )
+        }
+      />
 
-        <div>
-          <h2 className="text-lg font-semibold">
-            AI Contact Discovery
-          </h2>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Find relevant professional contacts at your
-            selected target company.
-          </p>
-        </div>
+      <div className="mt-5">
+        <Button
+          variant={result ? "secondary" : "primary"}
+          icon={Search}
+          loading={discovering}
+          disabled={leadId === null || discovering}
+          onClick={() => void handleDiscover()}
+        >
+          {discovering ? "Searching public sources…" : result ? "Search again" : "Find contacts"}
+        </Button>
       </div>
 
-      <button
-        type="button"
-        onClick={() => void handleDiscover()}
-        disabled={leadId === null || discovering}
-        className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {discovering ? (
-          <LoaderCircle
-            size={18}
-            className="animate-spin"
-          />
-        ) : (
-          <Search size={18} />
-        )}
-
-        {discovering
-          ? "Discovering contacts..."
-          : result
-            ? "Search Again"
-            : "Discover Contacts"}
-      </button>
-
-      {leadId === null && (
-        <p className="mt-3 flex items-center gap-2 text-sm text-amber-700">
-          <AlertCircle size={16} />
-          Please select a lead first.
-        </p>
-      )}
-
-      {discovering && (
-        <p
-          role="status"
-          className="mt-3 text-sm text-indigo-600"
-        >
-          Searching public professional sources and
-          assessing contact information. This may take a
-          little while.
-        </p>
-      )}
-
       {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-        >
-          {error}
+        <div className="mt-4">
+          <Notice tone="bad">{error}</Notice>
         </div>
       )}
 
       {result && (
-        <div className="mt-6 space-y-5">
-          <div className="border-b border-slate-100 pb-4">
-            <h3 className="font-semibold">
-              Results for {result.target_company}
-            </h3>
+        <div className="mt-5 space-y-3">
+          <p className="text-sm leading-6 text-ink-soft">{result.search_summary}</p>
 
-            <p className="mt-2 text-sm text-slate-600">
-              {result.search_summary}
+          {result.contacts.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line-strong p-6 text-center text-sm text-muted">
+              No suitable contacts were found. The email will use a neutral greeting.
             </p>
+          ) : (
+            <ul className="space-y-3">
+              {result.contacts.map((contact, index) => {
+                const key = contactKey(contact);
+                const isSelected = selectedKey === key;
+                const isRejected = contact.evidence_status === "REJECTED";
+                const status = evidence[contact.evidence_status] ?? {
+                  label: contact.evidence_status,
+                  tone: "neutral" as Tone,
+                };
 
-            <p className="mt-2 text-xs text-slate-500">
-              {result.contacts.length} contact
-              {result.contacts.length === 1 ? "" : "s"} found
-            </p>
-          </div>
-
-          {result.contacts.length === 0 && (
-            <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center">
-              <Users
-                size={28}
-                className="mx-auto text-slate-400"
-              />
-
-              <p className="mt-3 text-sm text-slate-600">
-                No suitable contacts were found.
-              </p>
-            </div>
-          )}
-
-          {result.contacts.map((contact, index) => {
-            const key = contactKey(contact);
-            const isSelected = selectedKey === key;
-            const isRejected =
-              contact.evidence_status === "REJECTED";
-
-            return (
-              <article
-                key={`${key}-${index}`}
-                className={`rounded-xl border p-5 transition ${
-                  isSelected
-                    ? "border-indigo-400 bg-indigo-50"
-                    : "border-slate-200 bg-white"
-                }`}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h4 className="font-semibold">
-                      {contact.name}
-                    </h4>
-
-                    <p className="mt-1 text-sm text-slate-600">
-                      {contact.job_title}
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      {contact.company_name}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${getEvidenceStyle(
-                      contact.evidence_status,
-                    )}`}
+                return (
+                  <li
+                    key={`${key}-${index}`}
+                    className={`rounded-md border p-4 transition-colors ${
+                      isSelected
+                        ? "border-petrol bg-petrol-wash/50 ring-1 ring-petrol"
+                        : "border-line"
+                    } ${isRejected ? "opacity-70" : ""}`}
                   >
-                    {getEvidenceLabel(
-                      contact.evidence_status,
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink">{contact.name}</p>
+                        <p className="text-sm text-ink-soft">
+                          {contact.job_title} · {contact.company_name}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="font-mono text-xs text-muted"
+                          title="Role relevance, scored by keyword match"
+                        >
+                          fit {contact.relevance_score}
+                        </span>
+                        <Badge tone={status.tone}>{status.label}</Badge>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-ink-soft">{contact.relevance_reason}</p>
+
+                    <blockquote className="mt-3 border-l-2 border-line-strong pl-3 text-[13px] leading-5 text-muted">
+                      “{contact.source_excerpt}”
+                      <a
+                        href={contact.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-1.5 inline-flex items-center gap-1 font-medium text-petrol hover:underline"
+                      >
+                        Source <ExternalLink size={12} />
+                      </a>
+                    </blockquote>
+
+                    {contact.evidence_warnings.length > 0 && (
+                      <ul className="mt-3 space-y-1 text-xs leading-5 text-warn">
+                        {contact.evidence_warnings.map((warning, warningIndex) => (
+                          <li key={warningIndex}>— {warning}</li>
+                        ))}
+                      </ul>
                     )}
-                  </span>
-                </div>
 
-                <div className="mt-4 flex items-center gap-2 text-sm">
-                  <Target
-                    size={17}
-                    className="text-indigo-600"
-                  />
-
-                  <span>
-                    Role Relevance:{" "}
-                    <strong>
-                      {contact.relevance_score}/100
-                    </strong>
-                  </span>
-                </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-indigo-500"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        Math.max(0, contact.relevance_score),
-                      )}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="mt-4">
-                  <p className="text-sm font-semibold">
-                    Why this contact?
-                  </p>
-
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
-                    {contact.relevance_reason}
-                  </p>
-                </div>
-
-                <div className="mt-4 flex items-start gap-2 text-sm">
-                  <Mail
-                    size={17}
-                    className="mt-0.5 shrink-0 text-slate-500"
-                  />
-
-                  <div>
-                    <p className="font-semibold">
-                      Public Work Email
-                    </p>
-
-                    <p className="mt-1 break-all text-slate-600">
-                      {contact.public_work_email ??
-                        "Not available or not confirmed"}
-                    </p>
-
-                    {contact.public_work_email && (
-                      <p className="mt-1 text-xs text-amber-700">
-                        A published address is not proof
-                        that it is current or deliverable.
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-muted">
+                        <span className="font-medium text-ink-soft">Work email:</span>{" "}
+                        {contact.public_work_email ?? "not published or not confirmed"}
                       </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-lg bg-slate-50 p-3">
-                  <p className="text-xs font-semibold text-slate-700">
-                    Supporting Evidence
-                  </p>
-
-                  <p className="mt-2 text-xs leading-5 text-slate-600">
-                    {contact.source_excerpt}
-                  </p>
-
-                  <a
-                    href={contact.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline"
-                  >
-                    View Source
-                    <ExternalLink size={13} />
-                  </a>
-                </div>
-
-                {contact.evidence_warnings.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="flex items-center gap-2 text-xs font-semibold text-amber-800">
-                      <ShieldAlert size={15} />
-                      Evidence Notes
-                    </p>
-
-                    <ul className="list-disc space-y-1 pl-5 text-xs text-slate-600">
-                      {contact.evidence_warnings.map(
-                        (warning, warningIndex) => (
-                          <li key={warningIndex}>
-                            {warning}
-                          </li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => handleSelect(contact)}
-                  disabled={isRejected}
-                  className={`mt-5 flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isSelected
-                      ? "bg-emerald-600 text-white"
-                      : "border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  }`}
-                >
-                  {isSelected ? (
-                    <>
-                      <CheckCircle2 size={17} />
-                      Selected
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck size={17} />
-                      Select Contact
-                    </>
-                  )}
-                </button>
-              </article>
-            );
-          })}
-
-          {selectedKey && (
-            <div
-              role="status"
-              className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-800"
-            >
-              Contact selected for review. No email has
-              been sent or saved to Gmail.
-            </div>
+                      <Button
+                        size="sm"
+                        variant={isSelected ? "primary" : "secondary"}
+                        icon={isSelected ? CheckCircle2 : UserCheck}
+                        disabled={isRejected}
+                        onClick={() => handleSelect(contact)}
+                        aria-pressed={isSelected}
+                      >
+                        {isRejected ? "Can't be used" : isSelected ? "Selected" : "Use this contact"}
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
 
           {result.limitations.length > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <h4 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
-                <AlertCircle size={17} />
-                Research Limitations
-              </h4>
-
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-800">
-                {result.limitations.map(
-                  (limitation, index) => (
-                    <li key={index}>
-                      {limitation}
-                    </li>
-                  ),
-                )}
+            <details className="rounded-md border border-line px-4 py-3 text-sm">
+              <summary className="cursor-pointer font-medium text-ink-soft">
+                Search limitations ({result.limitations.length})
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] leading-5 text-muted">
+                {result.limitations.map((limitation, index) => (
+                  <li key={index}>{limitation}</li>
+                ))}
               </ul>
-            </div>
+            </details>
           )}
         </div>
       )}
-    </section>
+
+      {!result && !discovering && (
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+          <Users size={14} />
+          Skip this step and the email will open with a neutral greeting.
+        </p>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {result ? `${result.contacts.length} contacts found` : ""}
+      </p>
+    </Card>
   );
 }

@@ -80,3 +80,12 @@ def test_unrelated_company_is_removed():
     )
 
     assert results == []
+
+
+def test_seniority_and_target_role_raise_the_score():
+    plain = get_relevance_score("Retail Director")
+    matched = get_relevance_score("Retail Director", target_role="Retail Operations Manager")
+
+    assert plain > get_relevance_score("Retail Assistant")  # seniority counts
+    assert matched == plain + 25  # shares "retail" with the wanted role
+    assert get_relevance_score("Supply Chain Analyst", "Retail Operations Manager") < 10

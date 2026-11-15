@@ -55,6 +55,12 @@ def setup_test_database():
     test_engine.dispose()
 
 
+@pytest.fixture
+def session_factory(setup_test_database) -> sessionmaker[Session]:
+    """Open sessions on the test database to seed or clean records."""
+    return TestSessionLocal
+
+
 # --------------------------------------------------
 # Client without database (Health Test)
 # --------------------------------------------------

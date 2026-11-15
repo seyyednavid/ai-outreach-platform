@@ -12,9 +12,11 @@ export interface Lead {
   pain_point: string;
   recipient_name: string | null;
   recipient_email: string | null;
+  /** Number of drafts generated for this lead. */
+  run_count: number;
 }
 
-export type LeadCreate = Omit<Lead, "id">;
+export type LeadCreate = Omit<Lead, "id" | "run_count">;
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -54,4 +56,28 @@ export async function createLead(
   });
 
   return parseResponse<Lead>(response);
+}
+
+export async function updateLead(
+  leadId: number,
+  data: LeadCreate,
+): Promise<Lead> {
+  const response = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  return parseResponse<Lead>(response);
+}
+
+/** Deletes the lead and all of its drafts. Cannot be undone. */
+export async function deleteLead(leadId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response);
+  }
 }
