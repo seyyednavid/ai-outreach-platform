@@ -135,7 +135,7 @@ docker exec ai-outreach-db createdb -U outreach outreach_test_db   # once
 
 cd backend
 uv run ruff check .
-uv run python -m pytest            # 136 tests
+uv run python -m pytest            # 140 tests
 
 cd ../frontend
 npm run lint

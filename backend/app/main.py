@@ -25,7 +25,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        # Local dev only: Vite moves to 5174+ when 5173 is busy.
+        # Deployed frontends come from CORS_ORIGINS. Local development is
+        # always allowed: Vite moves to 5174+ when 5173 is busy.
+        allow_origins=settings.cors_origin_list,
         allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE"],

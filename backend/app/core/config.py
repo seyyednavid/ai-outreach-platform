@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     llm_input_price_per_million: float = 0.40
     llm_output_price_per_million: float = 1.60
 
+    # Frontend addresses allowed to call the API, comma-separated,
+    # e.g. "https://app.example.com". localhost is always allowed.
+    cors_origins: str = ""
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
