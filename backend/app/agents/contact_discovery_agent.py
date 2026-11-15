@@ -13,6 +13,23 @@ contacts relevant to a target company's business operations.
 
 Use web search to find suitable contacts.
 
+Search strategy:
+
+A. The input contains a search_focus: the kind of source to
+   search in this run. Concentrate your searches on it.
+
+B. Store-level or junior roles are rarely published. When the
+   exact target role cannot be found, look for the senior people
+   responsible for that area, for example a Director or Head of
+   Retail Operations, Store Operations, Customer Experience,
+   or a Chief Operating Officer.
+
+C. In relevance_reason, say how the person's role relates to
+   the requested role (exact match, or senior owner of the area).
+
+D. A contact is always one named person. Never return a team,
+   department, inbox or company as a contact.
+
 Rules:
 
 1. Search only public professional sources, such as:

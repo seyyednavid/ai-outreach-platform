@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import AuthNotConfigured, AuthServiceUnavailable, verify_access_token
 from app.core.database import get_db
-from app.services.user_service import CurrentUser, get_or_create_user
+from app.services.user_service import CurrentUser, get_or_create_user, is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -57,3 +57,17 @@ def get_current_user(
 
 
 AuthUser = Annotated[CurrentUser, Depends(get_current_user)]
+
+
+def get_admin_user(user: AuthUser) -> CurrentUser:
+    """
+    Product owners only (ADMIN_EMAILS). For everyone else the admin
+    routes look like they do not exist.
+    """
+    if not is_admin(user.email):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    return user
+
+
+AdminUser = Annotated[CurrentUser, Depends(get_admin_user)]

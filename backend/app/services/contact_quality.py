@@ -48,8 +48,31 @@ SENIORITY_KEYWORDS = {
 STOP_WORDS = {"head", "with", "and", "the", "of", "for", "manager", "director"}
 
 
+# Words that show a "contact" is a team, inbox or company, not a person.
+NOT_A_PERSON_WORDS = {
+    "team", "teams", "department", "service", "services", "customer",
+    "customers", "support", "office", "desk", "helpdesk", "group",
+    "partnership", "partners", "ltd", "limited", "plc", "inc", "llc",
+    "company", "store", "stores", "staff", "management", "unknown",
+}
+
+
 def normalize(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def looks_like_person(name: str) -> bool:
+    """
+    A named individual: at least two words, letters only, and none of
+    the words used for teams or companies ("Customer Service Team").
+    """
+    words = re.findall(r"[^\W\d_]+(?:['-][^\W\d_]+)*", name.casefold())
+
+    return (
+        len(words) >= 2
+        and not re.search(r"[\d@&/]", name)
+        and not NOT_A_PERSON_WORDS.intersection(words)
+    )
 
 
 def get_relevance_score(job_title: str, target_role: str | None = None) -> int:
@@ -187,6 +210,10 @@ def clean_and_rank_contacts(
     normalized_target = normalize(target_company)
 
     for contact in contacts:
+        # Teams, inboxes and departments are not contacts.
+        if not looks_like_person(contact.name):
+            continue
+
         normalized_company = normalize(
             contact.company_name
         )

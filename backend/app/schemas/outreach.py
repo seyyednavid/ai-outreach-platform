@@ -146,6 +146,7 @@ class OutreachRunResponse(BaseModel):
     approved_at: datetime | None
     created_at: datetime
 
+    # Tokens, costs and traces are owner data: see /admin routes.
     model_config = {"from_attributes": True}
 
     @computed_field

@@ -1,7 +1,7 @@
 
 import json
 
-from agents import Runner
+from agents import Runner, trace
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
@@ -9,6 +9,7 @@ from app.agents.solution_matching_agent import (
     solution_matching_agent,
 )
 from app.api.deps import AuthUser, DbSession
+from app.core.tracing import run_config, trace_metadata
 from app.models.company import Company
 from app.models.company_product import CompanyProduct
 from app.models.lead import Lead
@@ -90,10 +91,19 @@ async def preview_solution_match(
         },
     }
 
-    result = await Runner.run(
-        solution_matching_agent,
-        input=json.dumps(company_context, ensure_ascii=False),
-    )
+    with trace(
+        "Solution matching",
+        metadata=trace_metadata(
+            organization_id=user.organization_id,
+            lead_id=lead.id,
+            seller_company_id=company.id,
+        ),
+    ):
+        result = await Runner.run(
+            solution_matching_agent,
+            input=json.dumps(company_context, ensure_ascii=False),
+            run_config=run_config(),
+        )
 
     match: SolutionMatchResult = result.final_output
 

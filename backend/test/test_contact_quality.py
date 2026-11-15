@@ -1,8 +1,11 @@
 
+import pytest
+
 from app.schemas.contact_discovery import ContactCandidate
 from app.services.contact_quality import (
     clean_and_rank_contacts,
     get_relevance_score,
+    looks_like_person,
 )
 
 
@@ -89,3 +92,16 @@ def test_seniority_and_target_role_raise_the_score():
     assert plain > get_relevance_score("Retail Assistant")  # seniority counts
     assert matched == plain + 25  # shares "retail" with the wanted role
     assert get_relevance_score("Supply Chain Analyst", "Retail Operations Manager") < 10
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["Customer Service Team", "Waitrose", "Waitrose & Partners", "Support Desk", "J0hn Smith"],
+)
+def test_teams_and_companies_are_not_contacts(name):
+    assert looks_like_person(name) is False
+
+
+@pytest.mark.parametrize("name", ["Jane Doe", "Mary-Ann O'Neil", "José García López"])
+def test_named_people_are_contacts(name):
+    assert looks_like_person(name) is True

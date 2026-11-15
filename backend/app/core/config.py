@@ -21,8 +21,21 @@ class Settings(BaseSettings):
     # that existed before login was added.
     legacy_owner_email: str | None = None
 
+    # Owners of the product, comma-separated. Only they can see the
+    # Usage page: tokens, costs and traces for every customer.
+    admin_emails: str = ""
+
     # Fernet key that encrypts Gmail tokens stored in the database.
     token_encryption_key: str | None = None
+
+    # Tracing. Off: traces keep timing and structure, but not prompts
+    # or outputs (email text, names). Turn off in production.
+    trace_include_sensitive_data: bool = True
+
+    # Prices for the cost estimate, in US dollars per million tokens.
+    # Defaults: gpt-4.1-mini. Check https://openai.com/api/pricing
+    llm_input_price_per_million: float = 0.40
+    llm_output_price_per_million: float = 1.60
 
     model_config = SettingsConfigDict(
         env_file=".env",

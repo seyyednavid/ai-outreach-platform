@@ -1,13 +1,16 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Building2,
   FilePlus,
   Inbox,
   LayoutDashboard,
+  Gauge,
   LogOut,
   Users,
 } from "lucide-react";
 
+import { getMe } from "../api/admin";
 import { useAuth } from "../auth/auth-context";
 
 // In the order you use them: set up, then write, then review.
@@ -24,6 +27,25 @@ const pipeline = ["Research", "Write", "Review", "Improve ×2", "You approve", "
 export default function AppLayout() {
   const { session, signOut } = useAuth();
   const email = session?.user.email ?? "";
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setIsOwner(me.is_admin);
+      })
+      .catch(() => {
+        // Not critical: the Usage link just stays hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const links = isOwner
+    ? [...navigation, { to: "/usage", label: "Usage", icon: Gauge }]
+    : navigation;
 
   return (
     <div className="min-h-screen bg-paper text-ink md:flex">
@@ -50,7 +72,7 @@ export default function AppLayout() {
             aria-label="Main"
             className="-mx-1 mt-4 flex gap-1 overflow-x-auto px-1 md:mt-9 md:flex-col md:overflow-visible"
           >
-            {navigation.map(({ to, label, icon: Icon }) => (
+            {links.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
