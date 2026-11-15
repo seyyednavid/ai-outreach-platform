@@ -15,7 +15,7 @@ from app.schemas.contact_discovery import (
     ReviewedContact,
 )
 from app.services.contact_quality import clean_and_rank_contacts
-from app.services.source_verification import verify_contact_source
+from app.services.source_verification import site_domain, verify_contact_source
 
 router = APIRouter(
     prefix="/contacts",
@@ -72,6 +72,7 @@ async def discover_contacts(
     reviewed = clean_and_rank_contacts(
         discovery.contacts,
         target_company=lead.company_name,
+        target_role=lead.target_role,
     )
 
     # Step 5: Add Python-calculated quality information.
@@ -85,10 +86,14 @@ async def discover_contacts(
         for contact, score, evidence_status, warnings in reviewed
     ]
 
+    # The lead's own website counts as a checkable source.
+    lead_domain = site_domain(lead.website)
+    trusted = (lead_domain,) if lead_domain else ()
+
     verified_contacts = []
 
     for contact in contacts:
-        verified_contact = await verify_contact_source(contact)
+        verified_contact = await verify_contact_source(contact, trusted)
         verified_contacts.append(verified_contact)
 
     # Step 6: Return the final API response.

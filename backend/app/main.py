@@ -21,14 +21,15 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.1.0",
     )
-    
+
     app.add_middleware(
-                CORSMiddleware,
-                allow_origins=["http://localhost:5173"],
-                allow_credentials=False,
-                allow_methods=["GET", "POST", "PUT"],
-                allow_headers=["Content-Type"],
-            )
+        CORSMiddleware,
+        # Local dev only: Vite moves to 5174+ when 5173 is busy.
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(leads_router, prefix="/api/v1")
@@ -37,7 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(companies_router, prefix="/api/v1")
     app.include_router(matching_router, prefix="/api/v1")
-    app.include_router(contact_discovery_router,prefix="/api/v1")
+    app.include_router(contact_discovery_router, prefix="/api/v1")
 
     return app
 

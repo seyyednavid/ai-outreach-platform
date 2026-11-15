@@ -1,13 +1,17 @@
-
 import { useEffect, useState, type FormEvent } from "react";
-import { Building2, Plus, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Building2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import {
   createLead,
+  deleteLead,
   getLeads,
+  updateLead,
   type Lead,
   type LeadCreate,
 } from "../api/leads";
+import { Button, Card, CardHeader, EmptyState, Field, Notice, PageHeader } from "../components/ui";
+import { getErrorMessage, inputClass } from "../components/ui-classes";
 
 const emptyForm: LeadCreate = {
   company_name: "",
@@ -19,288 +23,339 @@ const emptyForm: LeadCreate = {
   recipient_email: null,
 };
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 " +
-  "text-sm outline-none focus:border-indigo-500 focus:ring-2 " +
-  "focus:ring-indigo-100";
-
 export default function Leads() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [form, setForm] = useState<LeadCreate>({ ...emptyForm });
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getLeads()
+      .then((data) => {
+        if (!cancelled) setLeads(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(getErrorMessage(err, "Could not load leads."));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function loadLeads() {
     setLoading(true);
     setError(null);
-
     try {
-      const data = await getLeads();
-      setLeads(data);
+      setLeads(await getLeads());
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load leads",
-      );
+      setError(getErrorMessage(err, "Could not load leads."));
     } finally {
       setLoading(false);
     }
   }
 
-  
-useEffect(() => {
-  let cancelled = false;
+  function updateField(field: keyof LeadCreate, value: string) {
+    setForm((current) => ({ ...current, [field]: value || null }));
+  }
 
-  getLeads()
-    .then((data) => {
-      if (!cancelled) {
-        setLeads(data);
-      }
-    })
-    .catch((err: unknown) => {
-      if (!cancelled) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load leads"
-        );
-      }
-    })
-    .finally(() => {
-      if (!cancelled) {
-        setLoading(false);
-      }
+  function openNewForm() {
+    setEditingId(null);
+    setForm({ ...emptyForm });
+    setShowForm(true);
+    setError(null);
+  }
+
+  function openEditForm(lead: Lead) {
+    setEditingId(lead.id);
+    setForm({
+      company_name: lead.company_name,
+      website: lead.website,
+      industry: lead.industry,
+      target_role: lead.target_role,
+      pain_point: lead.pain_point,
+      recipient_name: lead.recipient_name,
+      recipient_email: lead.recipient_email,
     });
+    setShowForm(true);
+    setError(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
-
-
-  function updateField(
-    field: keyof LeadCreate,
-    value: string,
-  ) {
-    setForm((current) => ({
-      ...current,
-      [field]: value || null,
-    }));
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ ...emptyForm });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(null);
-
     try {
-      const created = await createLead(form);
-      setLeads((current) => [created, ...current]);
-      setForm({ ...emptyForm });
-      setShowForm(false);
+      if (editingId !== null) {
+        const updated = await updateLead(editingId, form);
+        setLeads((current) => current.map((lead) => (lead.id === updated.id ? updated : lead)));
+      } else {
+        const created = await createLead(form);
+        setLeads((current) => [created, ...current]);
+      }
+      closeForm();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create lead",
-      );
+      setError(getErrorMessage(err, "The lead could not be saved."));
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleDelete(lead: Lead) {
+    const drafts =
+      lead.run_count > 0
+        ? `\n\nIts ${lead.run_count} draft${lead.run_count === 1 ? "" : "s"} will be deleted too.`
+        : "";
+    if (!window.confirm(`Delete "${lead.company_name}"?${drafts}\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingId(lead.id);
+    setError(null);
+    try {
+      await deleteLead(lead.id);
+      setLeads((current) => current.filter((item) => item.id !== lead.id));
+      if (editingId === lead.id) closeForm();
+    } catch (err) {
+      setError(getErrorMessage(err, "The lead could not be deleted."));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
-    <div className="space-y-7">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold">Leads</h2>
-          <p className="mt-2 text-slate-500">
-            Manage companies and contacts for AI outreach.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="Leads"
+        description="Companies you want to reach, and what you think they might need."
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon={RefreshCw}
+              disabled={loading}
+              onClick={() => void loadLeads()}
+              aria-label="Reload leads"
+            />
+            <Button
+              variant={showForm ? "secondary" : "primary"}
+              icon={showForm ? X : Plus}
+              onClick={() => (showForm ? closeForm() : openNewForm())}
+            >
+              {showForm ? "Close" : "Add lead"}
+            </Button>
+          </>
+        }
+      />
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => void loadLeads()}
-            disabled={loading}
-            className="rounded-lg border border-slate-200 bg-white p-3 hover:bg-slate-100 disabled:opacity-50"
-            aria-label="Refresh leads"
-          >
-            <RefreshCw size={18} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowForm((current) => !current)}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <Plus size={18} />
-            {showForm ? "Close form" : "Add Lead"}
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <Notice tone="bad">{error}</Notice>}
 
       {showForm && (
-        <form
-          onSubmit={(event) => void handleSubmit(event)}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          <h3 className="mb-5 text-lg font-semibold">New Lead</h3>
+        <Card as="div" className="p-5 md:p-6">
+          <form onSubmit={(event) => void handleSubmit(event)}>
+            <CardHeader
+              title={editingId !== null ? `Edit ${form.company_name || "lead"}` : "New lead"}
+              description={
+                editingId !== null
+                  ? "Changes apply to new drafts and AI checks. Existing drafts keep their text."
+                  : "Fields marked * are required."
+              }
+            />
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1 text-sm font-medium">
-              Company Name *
-              <input
-                className={inputClass}
-                value={form.company_name}
-                onChange={(e) => updateField("company_name", e.target.value)}
-                required
-              />
-            </label>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Field label="Company name *">
+                <input
+                  className={inputClass}
+                  value={form.company_name}
+                  onChange={(e) => updateField("company_name", e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Website">
+                <input
+                  className={inputClass}
+                  type="url"
+                  value={form.website ?? ""}
+                  onChange={(e) => updateField("website", e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </Field>
+              <Field label="Industry *">
+                <input
+                  className={inputClass}
+                  value={form.industry}
+                  onChange={(e) => updateField("industry", e.target.value)}
+                  placeholder="Retail"
+                  required
+                />
+              </Field>
+              <Field label="Role to reach *">
+                <input
+                  className={inputClass}
+                  value={form.target_role}
+                  onChange={(e) => updateField("target_role", e.target.value)}
+                  placeholder="Head of Store Operations"
+                  required
+                />
+              </Field>
+              <Field label="Contact name">
+                <input
+                  className={inputClass}
+                  value={form.recipient_name ?? ""}
+                  onChange={(e) => updateField("recipient_name", e.target.value)}
+                />
+              </Field>
+              <Field label="Contact email" hint="Pre-fills the Gmail recipient">
+                <input
+                  className={inputClass}
+                  type="email"
+                  value={form.recipient_email ?? ""}
+                  onChange={(e) => updateField("recipient_email", e.target.value)}
+                />
+              </Field>
+              <Field
+                label="Possible need *"
+                hint="Treated as unconfirmed by every agent"
+                className="md:col-span-2"
+              >
+                <textarea
+                  className={`${inputClass} leading-6`}
+                  rows={3}
+                  value={form.pain_point}
+                  onChange={(e) => updateField("pain_point", e.target.value)}
+                  placeholder="Long queues at service counters during peak hours"
+                  required
+                />
+              </Field>
+            </div>
 
-            <label className="space-y-1 text-sm font-medium">
-              Website
-              <input
-                className={inputClass}
-                type="url"
-                value={form.website ?? ""}
-                onChange={(e) => updateField("website", e.target.value)}
-                placeholder="https://example.com"
-              />
-            </label>
-
-            <label className="space-y-1 text-sm font-medium">
-              Industry *
-              <input
-                className={inputClass}
-                value={form.industry}
-                onChange={(e) => updateField("industry", e.target.value)}
-                required
-              />
-            </label>
-
-            <label className="space-y-1 text-sm font-medium">
-              Target Role *
-              <input
-                className={inputClass}
-                value={form.target_role}
-                onChange={(e) => updateField("target_role", e.target.value)}
-                placeholder="Operations Manager"
-                required
-              />
-            </label>
-
-            <label className="space-y-1 text-sm font-medium">
-              Recipient Name
-              <input
-                className={inputClass}
-                value={form.recipient_name ?? ""}
-                onChange={(e) => updateField("recipient_name", e.target.value)}
-              />
-            </label>
-
-            <label className="space-y-1 text-sm font-medium">
-              Recipient Email
-              <input
-                className={inputClass}
-                type="email"
-                value={form.recipient_email ?? ""}
-                onChange={(e) => updateField("recipient_email", e.target.value)}
-              />
-            </label>
-
-            <label className="space-y-1 text-sm font-medium md:col-span-2">
-              Potential Pain Point *
-              <textarea
-                className={inputClass}
-                rows={3}
-                value={form.pain_point}
-                onChange={(e) => updateField("pain_point", e.target.value)}
-                placeholder="Describe a possible business challenge..."
-                required
-              />
-            </label>
-          </div>
-
-          <div className="mt-5 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save Lead"}
-            </button>
-          </div>
-        </form>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button type="submit" loading={saving} disabled={saving}>
+                {saving ? "Saving…" : editingId !== null ? "Save changes" : "Save lead"}
+              </Button>
+            </div>
+          </form>
+        </Card>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h3 className="font-semibold">All Leads</h3>
-          <span className="text-sm text-slate-500">
-            {leads.length} records
-          </span>
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h2 className="font-semibold">All leads</h2>
+          <span className="font-mono text-xs text-muted">{leads.length} total</span>
         </div>
 
         {loading ? (
-          <p className="p-8 text-sm text-slate-500">Loading leads...</p>
+          <p className="p-6 text-sm text-muted">Loading leads…</p>
         ) : leads.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 p-12 text-slate-500">
-            <Building2 size={32} />
-            <p>No leads found. Add your first company.</p>
+          <div className="p-6">
+            <EmptyState
+              icon={Building2}
+              title="No leads yet"
+              action={
+                <Button icon={Plus} onClick={openNewForm}>
+                  Add your first lead
+                </Button>
+              }
+            >
+              Add a company you want to reach. You can then write a draft for it on the New draft page.
+            </EmptyState>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-6 py-4">Company</th>
-                  <th className="px-6 py-4">Industry</th>
-                  <th className="px-6 py-4">Target Role</th>
-                  <th className="px-6 py-4">Contact</th>
-                  <th className="px-6 py-4">ID</th>
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-line bg-paper/60">
+                  {["Company", "Industry", "Role to reach", "Contact", "Drafts", ""].map((heading) => (
+                    <th
+                      key={heading}
+                      scope="col"
+                      className="px-5 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-muted"
+                    >
+                      {heading}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      <p className="font-semibold">{lead.company_name}</p>
+                  <tr key={lead.id} className="align-top hover:bg-paper/50">
+                    <td className="px-5 py-3.5">
+                      <p className="font-semibold text-ink">{lead.company_name}</p>
                       {lead.website && (
                         <a
                           href={lead.website}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:underline"
+                          className="text-xs text-petrol hover:underline"
                         >
-                          {lead.website}
+                          {lead.website.replace(/^https?:\/\//, "")}
                         </a>
                       )}
                     </td>
-                    <td className="px-6 py-4">{lead.industry}</td>
-                    <td className="px-6 py-4">{lead.target_role}</td>
-                    <td className="px-6 py-4">
-                      {lead.recipient_name || lead.recipient_email || "—"}
+                    <td className="px-5 py-3.5 text-ink-soft">{lead.industry}</td>
+                    <td className="px-5 py-3.5 text-ink-soft">{lead.target_role}</td>
+                    <td className="px-5 py-3.5 text-ink-soft">
+                      {lead.recipient_name || lead.recipient_email || <span className="text-muted">—</span>}
                     </td>
-                    <td className="px-6 py-4 text-slate-500">#{lead.id}</td>
+                    <td className="px-5 py-3.5">
+                      {lead.run_count > 0 ? (
+                        <Link
+                          to={`/drafts?lead=${lead.id}`}
+                          className="font-mono text-xs font-semibold text-petrol hover:underline"
+                        >
+                          {lead.run_count} →
+                        </Link>
+                      ) : (
+                        <span className="font-mono text-xs text-muted">0</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end gap-1.5">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={Pencil}
+                          disabled={deletingId !== null}
+                          onClick={() => openEditForm(lead)}
+                          aria-label={`Edit ${lead.company_name}`}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          icon={Trash2}
+                          loading={deletingId === lead.id}
+                          disabled={deletingId !== null}
+                          onClick={() => void handleDelete(lead)}
+                          aria-label={`Delete ${lead.company_name}`}
+                        />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

@@ -1,18 +1,17 @@
-
 import { useEffect, useState } from "react";
-import {
-  AlertCircle,
-  Building2,
-  CheckCircle2,
-  ChartNoAxesColumn,
-  RefreshCw,
-  Workflow,
-} from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowRight, RefreshCw } from "lucide-react";
 
-import {
-  getDashboardStats,
-  type DashboardStats,
-} from "../api/dashboard";
+import { getDashboardStats, type DashboardStats } from "../api/dashboard";
+import { Button, Card, Label, Notice, PageHeader } from "../components/ui";
+import { getErrorMessage } from "../components/ui-classes";
+
+const steps = [
+  { title: "Add your company", body: "Your products, and your name and contact details for the signature.", to: "/company" },
+  { title: "Add a lead", body: "The target company, the role you want and a possible need.", to: "/leads" },
+  { title: "Write a new draft", body: "Choose a lead and product. The AI researches, writes and checks it.", to: "/outreach" },
+  { title: "Review and approve", body: "Fix what the AI flagged, approve, then save it as a Gmail draft.", to: "/drafts" },
+];
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -21,184 +20,105 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
-
     getDashboardStats()
       .then((data) => {
-        if (!cancelled) {
-          setStats(data);
-        }
+        if (!cancelled) setStats(data);
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load dashboard",
-          );
-        }
+        if (!cancelled) setError(getErrorMessage(err, "Could not load activity."));
       })
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  async function refreshStats() {
+  async function load() {
     setLoading(true);
     setError(null);
-
     try {
-      const data = await getDashboardStats();
-      setStats(data);
+      setStats(await getDashboardStats());
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to refresh dashboard",
-      );
+      setError(getErrorMessage(err, "Could not load activity."));
     } finally {
       setLoading(false);
     }
   }
 
-  const cards = [
+  const approvalRate =
+    stats && stats.total_outreach_runs > 0
+      ? Math.round((stats.human_approved_emails / stats.total_outreach_runs) * 100)
+      : null;
+
+  const figures = [
+    { label: "Leads", value: stats?.total_leads, note: "companies to reach" },
+    { label: "Drafts generated", value: stats?.total_outreach_runs, note: "AI workflow runs" },
     {
-      title: "Total Leads",
-      value: stats?.total_leads,
-      description: "Companies in your database",
-      icon: Building2,
-      color: "text-indigo-600",
-      background: "bg-indigo-50",
-    },
-    {
-      title: "Outreach Runs",
-      value: stats?.total_outreach_runs,
-      description: "AI workflows executed",
-      icon: Workflow,
-      color: "text-blue-600",
-      background: "bg-blue-50",
-    },
-    {
-      title: "Human Approved",
+      label: "Approved by you",
       value: stats?.human_approved_emails,
-      description: "Emails approved by a user",
-      icon: CheckCircle2,
-      color: "text-emerald-600",
-      background: "bg-emerald-50",
+      note: approvalRate === null ? "of generated drafts" : `${approvalRate}% of generated drafts`,
     },
     {
-      title: "Average AI Score",
-      value:
-        stats === null
-          ? undefined
-          : `${stats.average_review_score.toFixed(2)}/10`,
-      description: "Average reviewer score",
-      icon: ChartNoAxesColumn,
-      color: "text-amber-600",
-      background: "bg-amber-50",
+      label: "Average AI score",
+      value: stats ? stats.average_review_score.toFixed(1) : undefined,
+      note: "out of 10 · passing is 8",
     },
   ];
 
   return (
-    <div className="space-y-7">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">
-            Dashboard
-          </h2>
+    <div className="space-y-8">
+      <PageHeader
+        title="Dashboard"
+        description="Your outreach activity so far."
+        actions={
+          <Button variant="secondary" icon={RefreshCw} loading={loading} disabled={loading} onClick={() => void load()}>
+            Refresh
+          </Button>
+        }
+      />
 
-          <p className="mt-2 text-slate-500">
-            Overview of your AI outreach activity.
-          </p>
-        </div>
+      {error && <Notice tone="bad">{error}</Notice>}
 
-        <button
-          type="button"
-          onClick={() => void refreshStats()}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw
-            size={17}
-            className={loading ? "animate-spin" : ""}
-          />
-          {loading ? "Loading..." : "Refresh"}
-        </button>
-      </div>
+      <Card as="div" className="grid grid-cols-2 gap-px overflow-hidden bg-line lg:grid-cols-4">
+        {figures.map((figure) => (
+          <div key={figure.label} className="bg-surface px-5 py-5 md:px-6">
+            <Label>{figure.label}</Label>
+            <p className="mt-2 font-mono text-3xl font-bold tracking-tight text-ink md:text-4xl">
+              {figure.value ?? (loading ? "··" : "—")}
+            </p>
+            <p className="mt-1 text-xs text-muted">{figure.note}</p>
+          </div>
+        ))}
+      </Card>
 
-      {/* Error */}
-      {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-        >
-          <AlertCircle size={18} />
-          {error}
-        </div>
-      )}
-
-      {/* Statistics */}
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => {
-          const Icon = card.icon;
-
-          return (
-            <div
-              key={card.title}
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className={`rounded-xl p-3 ${card.background}`}
-                >
-                  <Icon
-                    size={22}
-                    className={card.color}
-                  />
+      <section aria-labelledby="flow-heading">
+        <h2 id="flow-heading" className="font-display text-xl font-bold tracking-tight">
+          How it works
+        </h2>
+        <ol className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {steps.map((step, index) => (
+            <li key={step.title}>
+              <Link
+                to={step.to}
+                className="group flex h-full flex-col rounded-lg border border-line bg-surface p-5 transition-colors hover:border-petrol"
+              >
+                <span className="grid size-7 place-items-center rounded-md bg-ink font-mono text-xs font-bold text-signal">
+                  {index + 1}
                 </span>
-              </div>
-
-              <p className="mt-5 text-sm font-medium text-slate-500">
-                {card.title}
-              </p>
-
-              <p className="mt-2 text-3xl font-bold text-slate-900">
-                {stats === null && loading
-                  ? "..."
-                  : card.value ?? "—"}
-              </p>
-
-              <p className="mt-3 text-xs text-slate-400">
-                {card.description}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Information */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold">
-          Outreach Overview
-        </h3>
-
-        <p className="mt-3 text-sm leading-7 text-slate-600">
-          Manage your leads, run AI-powered outreach
-          workflows, review generated emails and create
-          Gmail drafts after human approval.
-        </p>
-
-        <p className="mt-3 text-xs text-slate-400">
-          Statistics are calculated from PostgreSQL.
-          Gmail draft counts are not tracked yet.
-        </p>
+                <span className="mt-4 font-semibold text-ink">{step.title}</span>
+                <span className="mt-1 flex-1 text-sm leading-6 text-muted">{step.body}</span>
+                <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-petrol">
+                  Open <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ol>
       </section>
+
+      <p className="text-xs text-muted">Gmail drafts are not counted yet.</p>
     </div>
   );
 }

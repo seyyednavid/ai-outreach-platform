@@ -1,16 +1,5 @@
-
 import { useEffect, useState, type FormEvent } from "react";
-import {
-  Building2,
-  LoaderCircle,
-  Package,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Building2, Package, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 
 import {
   createCompany,
@@ -25,6 +14,17 @@ import {
   type Product,
   type ProductInput,
 } from "../api/companies";
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Field,
+  Label,
+  Notice,
+  PageHeader,
+} from "../components/ui";
+import { inputClass } from "../components/ui-classes";
 
 const emptyCompany: CompanyInput = {
   name: "",
@@ -33,7 +33,38 @@ const emptyCompany: CompanyInput = {
   description: "",
   target_customers: "",
   differentiators: "",
+  sender_name: null,
+  sender_job_title: null,
+  sign_off: "Best regards",
+  sender_email: null,
+  sender_phone: null,
+  cta_type: "call",
 };
+
+/** Optional text fields saved as null when left empty. */
+const OPTIONAL_FIELDS: (keyof CompanyInput)[] = [
+  "website",
+  "sender_name",
+  "sender_job_title",
+  "sign_off",
+  "sender_email",
+  "sender_phone",
+];
+
+/** The same block the backend adds to every email. */
+function signaturePreview(company: CompanyInput): string | null {
+  if (!company.sender_name) return null;
+  const titleLine = [company.sender_job_title, company.name].filter(Boolean).join(", ");
+  const contactLine = [company.sender_phone, company.sender_email].filter(Boolean).join(" · ");
+  return [
+    `${(company.sign_off || "Best regards").replace(/,$/, "")},`,
+    company.sender_name,
+    titleLine,
+    contactLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 interface ProductForm {
   name: string;
@@ -48,11 +79,6 @@ const emptyProduct: ProductForm = {
   featuresText: "",
   useCasesText: "",
 };
-
-const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 " +
-  "text-sm outline-none focus:border-indigo-500 focus:ring-2 " +
-  "focus:ring-indigo-100";
 
 function listToText(items: string[]): string {
   return items.join("\n");
@@ -178,6 +204,12 @@ export default function MyCompany() {
       description: selectedCompany.description,
       target_customers: selectedCompany.target_customers,
       differentiators: selectedCompany.differentiators,
+      sender_name: selectedCompany.sender_name,
+      sender_job_title: selectedCompany.sender_job_title,
+      sign_off: selectedCompany.sign_off,
+      sender_email: selectedCompany.sender_email,
+      sender_phone: selectedCompany.sender_phone,
+      cta_type: selectedCompany.cta_type,
     });
 
     setEditingCompany(true);
@@ -191,7 +223,7 @@ export default function MyCompany() {
   ) {
     setCompanyForm((current) => ({
       ...current,
-      [field]: field === "website" ? value || null : value,
+      [field]: OPTIONAL_FIELDS.includes(field) ? value || null : value,
     }));
   }
 
@@ -352,486 +384,466 @@ export default function MyCompany() {
   const busy = saving || deletingId !== null;
 
   return (
-    <div className="space-y-7">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold">My Company</h2>
-          <p className="mt-2 text-slate-500">
-            Manage your company profiles and products.
-          </p>
-        </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="My Company"
+        description="What you sell. The AI may only describe products using what you write here."
+        actions={
+          <Button icon={Plus} disabled={busy} onClick={startNewCompany}>
+            Add company
+          </Button>
+        }
+      />
 
-        <button
-          type="button"
-          onClick={startNewCompany}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          <Plus size={18} />
-          Add Company
-        </button>
-      </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-        >
-          {error}
-        </div>
-      )}
-
+      {error && <Notice tone="bad">{error}</Notice>}
       {success && (
-        <div
-          role="status"
-          className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700"
-        >
+        <Notice tone="ok" role="status">
           {success}
-        </div>
+        </Notice>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <Building2 size={20} className="text-indigo-600" />
-          <h3 className="font-semibold">Select Company</h3>
-        </div>
-
-        {loading ? (
-          <p className="text-sm text-slate-500">
-            Loading companies...
-          </p>
-        ) : (
-          <select
-            className={inputClass}
-            value={companyId ?? ""}
-            disabled={busy}
-            onChange={(event) =>
-              selectCompany(
-                event.target.value
-                  ? Number(event.target.value)
-                  : null,
-              )
-            }
-          >
-            <option value="">Choose a company...</option>
-
-            {companies.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </section>
-
-      {companyFormVisible && (
-        <form
-          onSubmit={(event) => void handleSaveCompany(event)}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          <h3 className="mb-5 text-lg font-semibold">
-            {creatingCompany ? "New Company" : "Edit Company"}
-          </h3>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2 text-sm font-medium">
-              Company Name *
-              <input
-                className={inputClass}
-                required
-                disabled={busy}
-                value={companyForm.name}
-                onChange={(e) =>
-                  updateCompanyField("name", e.target.value)
-                }
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-medium">
-              Website
-              <input
-                type="url"
-                className={inputClass}
-                disabled={busy}
-                placeholder="https://example.com"
-                value={companyForm.website ?? ""}
-                onChange={(e) =>
-                  updateCompanyField("website", e.target.value)
-                }
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-medium">
-              Industry *
-              <input
-                className={inputClass}
-                required
-                disabled={busy}
-                value={companyForm.industry}
-                onChange={(e) =>
-                  updateCompanyField("industry", e.target.value)
-                }
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-medium">
-              Target Customers *
-              <input
-                className={inputClass}
-                required
-                disabled={busy}
-                value={companyForm.target_customers}
-                onChange={(e) =>
-                  updateCompanyField("target_customers", e.target.value)
-                }
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-medium md:col-span-2">
-              Company Description *
-              <textarea
-                className={inputClass}
-                rows={4}
-                required
-                disabled={busy}
-                value={companyForm.description}
-                onChange={(e) =>
-                  updateCompanyField("description", e.target.value)
-                }
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-medium md:col-span-2">
-              Key Differentiators *
-              <textarea
-                className={inputClass}
-                rows={3}
-                required
-                disabled={busy}
-                value={companyForm.differentiators}
-                onChange={(e) =>
-                  updateCompanyField("differentiators", e.target.value)
-                }
-              />
-            </label>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              type="submit"
-              disabled={busy}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {saving ? (
-                <LoaderCircle size={17} className="animate-spin" />
-              ) : (
-                <Save size={17} />
-              )}
-              Save Company
-            </button>
-
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setCreatingCompany(false);
-                setEditingCompany(false);
-              }}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm"
-            >
-              <X size={17} />
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {selectedCompany && !companyFormVisible && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h3 className="text-xl font-semibold">
-                {selectedCompany.name}
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                {selectedCompany.industry}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={startEditCompany}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50"
-            >
-              <Pencil size={16} />
-              Edit Company
-            </button>
-          </div>
-
-          {selectedCompany.website && (
-            <a
-              href={selectedCompany.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-block text-sm text-indigo-600 hover:underline"
-            >
-              {selectedCompany.website}
-            </a>
-          )}
-
-          <div className="mt-5 space-y-4 text-sm">
-            <div>
-              <p className="font-semibold">Description</p>
-              <p className="mt-1 whitespace-pre-wrap text-slate-600">
-                {selectedCompany.description}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-semibold">Target Customers</p>
-              <p className="mt-1 whitespace-pre-wrap text-slate-600">
-                {selectedCompany.target_customers}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-semibold">Differentiators</p>
-              <p className="mt-1 whitespace-pre-wrap text-slate-600">
-                {selectedCompany.differentiators}
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {selectedCompany && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Package size={20} className="text-indigo-600" />
-              <h3 className="text-lg font-semibold">
-                Products ({products.length})
-              </h3>
-            </div>
-
-            <button
-              type="button"
-              onClick={startNewProduct}
-              disabled={busy}
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-            >
-              <Plus size={17} />
-              Add Product
-            </button>
-          </div>
-
-          {showProductForm && (
-            <form
-              onSubmit={(event) => void handleSaveProduct(event)}
-              className="mb-6 space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-5"
-            >
-              <h4 className="font-semibold">
-                {editingProductId === null
-                  ? "New Product"
-                  : "Edit Product"}
-              </h4>
-
-              <label className="block space-y-2 text-sm font-medium">
-                Product Name *
-                <input
-                  className={inputClass}
-                  required
-                  disabled={busy}
-                  value={productForm.name}
-                  onChange={(e) =>
-                    updateProductField("name", e.target.value)
-                  }
-                />
-              </label>
-
-              <label className="block space-y-2 text-sm font-medium">
-                Description *
-                <textarea
-                  className={inputClass}
-                  rows={3}
-                  required
-                  disabled={busy}
-                  value={productForm.description}
-                  onChange={(e) =>
-                    updateProductField("description", e.target.value)
-                  }
-                />
-              </label>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block space-y-2 text-sm font-medium">
-                  Features (one per line)
-                  <textarea
-                    className={inputClass}
-                    rows={5}
-                    disabled={busy}
-                    value={productForm.featuresText}
-                    onChange={(e) =>
-                      updateProductField(
-                        "featuresText",
-                        e.target.value,
-                      )
-                    }
-                    placeholder={
-                      "Service point calling\nVisual customer guidance"
-                    }
-                  />
-                </label>
-
-                <label className="block space-y-2 text-sm font-medium">
-                  Use Cases (one per line)
-                  <textarea
-                    className={inputClass}
-                    rows={5}
-                    disabled={busy}
-                    value={productForm.useCasesText}
-                    onChange={(e) =>
-                      updateProductField(
-                        "useCasesText",
-                        e.target.value,
-                      )
-                    }
-                    placeholder={
-                      "Retail service counters\nCustomer service desks"
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {saving ? (
-                    <LoaderCircle size={17} className="animate-spin" />
-                  ) : (
-                    <Save size={17} />
-                  )}
-                  Save Product
-                </button>
-
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowProductForm(false)}
-                  className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {loadingProducts ? (
-            <p className="text-sm text-slate-500">
-              Loading products...
-            </p>
-          ) : products.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
-              No products yet. Add your first product.
-            </p>
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        {/* Company list */}
+        <nav aria-label="Companies" className="min-w-0">
+          <Label>Companies</Label>
+          {loading ? (
+            <p className="mt-3 text-sm text-muted">Loading…</p>
+          ) : companies.length === 0 ? (
+            <p className="mt-3 text-sm leading-6 text-muted">None yet.</p>
           ) : (
-            <div className="space-y-4">
-              {products.map((product) => (
-                <div
-                  key={product.id}
-                  className="rounded-xl border border-slate-200 p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h4 className="font-semibold">
-                        {product.name}
-                      </h4>
-                      <p className="mt-2 text-sm text-slate-600">
-                        {product.description}
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => startEditProduct(product)}
-                        className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-50"
-                        aria-label={`Edit ${product.name}`}
-                      >
-                        <Pencil size={17} />
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void handleDeleteProduct(product)
-                        }
-                        className="rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        aria-label={`Delete ${product.name}`}
-                      >
-                        {deletingId === product.id ? (
-                          <LoaderCircle
-                            size={17}
-                            className="animate-spin"
-                          />
-                        ) : (
-                          <Trash2 size={17} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-500">
-                        Features
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-600">
-                        {product.features.map((feature, index) => (
-                          <li key={index}>{feature}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-500">
-                        Use Cases
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-600">
-                        {product.use_cases.map((useCase, index) => (
-                          <li key={index}>{useCase}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ul className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+              {companies.map((company) => {
+                const active = company.id === companyId && !creatingCompany;
+                return (
+                  <li key={company.id} className="shrink-0">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => selectCompany(company.id)}
+                      aria-current={active ? "true" : undefined}
+                      className={`w-full rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${
+                        active
+                          ? "border-ink bg-ink text-white"
+                          : "border-line bg-surface hover:border-line-strong"
+                      }`}
+                    >
+                      <span className="block font-semibold">{company.name}</span>
+                      <span className={`block text-xs ${active ? "text-white/60" : "text-muted"}`}>
+                        {company.industry}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </section>
-      )}
+        </nav>
 
-      {!selectedCompany && !creatingCompany && !loading && (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <Building2
-            size={32}
-            className="mx-auto text-slate-400"
-          />
-          <p className="mt-3 text-sm text-slate-500">
-            Select a company or create a new company profile.
-          </p>
+        <div className="min-w-0 space-y-4">
+          {/* Company form */}
+          {companyFormVisible && (
+            <Card as="div" className="p-5 md:p-6">
+              <form onSubmit={(event) => void handleSaveCompany(event)}>
+                <CardHeader
+                  icon={Building2}
+                  title={creatingCompany ? "New company" : `Edit ${selectedCompany?.name ?? "company"}`}
+                  description="Fields marked * are required."
+                />
+
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <Field label="Company name *">
+                    <input
+                      className={inputClass}
+                      required
+                      disabled={busy}
+                      value={companyForm.name}
+                      onChange={(e) => updateCompanyField("name", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Website">
+                    <input
+                      type="url"
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="https://example.com"
+                      value={companyForm.website ?? ""}
+                      onChange={(e) => updateCompanyField("website", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Industry *">
+                    <input
+                      className={inputClass}
+                      required
+                      disabled={busy}
+                      value={companyForm.industry}
+                      onChange={(e) => updateCompanyField("industry", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Who you sell to *">
+                    <input
+                      className={inputClass}
+                      required
+                      disabled={busy}
+                      value={companyForm.target_customers}
+                      onChange={(e) => updateCompanyField("target_customers", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Description *" className="md:col-span-2">
+                    <textarea
+                      className={`${inputClass} leading-6`}
+                      rows={4}
+                      required
+                      disabled={busy}
+                      value={companyForm.description}
+                      onChange={(e) => updateCompanyField("description", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="What sets you apart *" className="md:col-span-2">
+                    <textarea
+                      className={`${inputClass} leading-6`}
+                      rows={3}
+                      required
+                      disabled={busy}
+                      value={companyForm.differentiators}
+                      onChange={(e) => updateCompanyField("differentiators", e.target.value)}
+                    />
+                  </Field>
+
+                  <div className="border-t border-line pt-5 md:col-span-2">
+                    <p className="font-semibold text-ink">Email signature and ending</p>
+                    <p className="mt-1 text-sm text-muted">
+                      Added to the end of every email by the app, never written by the AI.
+                      Without your name, drafts cannot pass review.
+                    </p>
+                  </div>
+                  <Field label="Your name" hint="Recommended">
+                    <input
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="Jane Smith"
+                      value={companyForm.sender_name ?? ""}
+                      onChange={(e) => updateCompanyField("sender_name", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Your job title">
+                    <input
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="Sales Manager"
+                      value={companyForm.sender_job_title ?? ""}
+                      onChange={(e) => updateCompanyField("sender_job_title", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Phone">
+                    <input
+                      type="tel"
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="+44 20 0000 0000"
+                      value={companyForm.sender_phone ?? ""}
+                      onChange={(e) => updateCompanyField("sender_phone", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Email">
+                    <input
+                      type="email"
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="jane@company.com"
+                      value={companyForm.sender_email ?? ""}
+                      onChange={(e) => updateCompanyField("sender_email", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Sign-off">
+                    <input
+                      className={inputClass}
+                      disabled={busy}
+                      placeholder="Best regards"
+                      value={companyForm.sign_off ?? ""}
+                      onChange={(e) => updateCompanyField("sign_off", e.target.value)}
+                    />
+                  </Field>
+                  <fieldset className="text-sm">
+                    <legend className="font-medium text-ink">Every email ends by asking for</legend>
+                    <div className="mt-1.5 flex flex-col gap-2">
+                      {(
+                        [
+                          ["call", "A short phone call"],
+                          ["email", "A reply by email"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <label key={value} className="flex cursor-pointer items-center gap-2 text-ink">
+                          <input
+                            type="radio"
+                            name="cta_type"
+                            className="size-4 accent-petrol"
+                            disabled={busy}
+                            checked={companyForm.cta_type === value}
+                            onChange={() => updateCompanyField("cta_type", value)}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button type="submit" icon={Save} loading={saving} disabled={busy}>
+                    Save company
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    icon={X}
+                    disabled={busy}
+                    onClick={() => {
+                      setCreatingCompany(false);
+                      setEditingCompany(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          )}
+
+          {/* Company profile */}
+          {selectedCompany && !companyFormVisible && (
+            <Card className="p-5 md:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-display text-2xl font-bold tracking-tight">{selectedCompany.name}</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    {selectedCompany.industry}
+                    {selectedCompany.website && (
+                      <>
+                        {" · "}
+                        <a
+                          href={selectedCompany.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-petrol hover:underline"
+                        >
+                          {selectedCompany.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      </>
+                    )}
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" icon={Pencil} onClick={startEditCompany}>
+                  Edit
+                </Button>
+              </div>
+
+              <dl className="mt-5 grid gap-5 text-sm leading-6 md:grid-cols-3">
+                {(
+                  [
+                    ["Description", selectedCompany.description],
+                    ["Who you sell to", selectedCompany.target_customers],
+                    ["What sets you apart", selectedCompany.differentiators],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label}>
+                    <dt><Label>{label}</Label></dt>
+                    <dd className="mt-1 whitespace-pre-wrap text-ink-soft">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-6 border-t border-line pt-5">
+                <Label>Email signature and ending</Label>
+                {signaturePreview(selectedCompany) ? (
+                  <div className="mt-2 grid gap-4 text-sm md:grid-cols-2">
+                    <pre className="whitespace-pre-wrap rounded-md border border-line bg-paper/60 px-4 py-3 font-sans leading-6 text-ink">
+                      {signaturePreview(selectedCompany)}
+                    </pre>
+                    <p className="leading-6 text-ink-soft">
+                      Every email ends by asking for{" "}
+                      <strong className="text-ink">
+                        {selectedCompany.cta_type === "email" ? "a reply by email" : "a short phone call"}
+                      </strong>
+                      . The app adds this signature itself, so it is always correct.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <Notice tone="warn" title="Add your name to sign emails">
+                      Without a sender name, every draft fails review. Click Edit to add it.
+                    </Notice>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Product catalogue */}
+          {selectedCompany && (
+            <Card className="p-5 md:p-6">
+              <CardHeader
+                icon={Package}
+                title={`Products (${products.length})`}
+                description="Matching picks from this list, and the email may only claim these features."
+                actions={
+                  !showProductForm && (
+                    <Button size="sm" icon={Plus} disabled={busy} onClick={startNewProduct}>
+                      Add product
+                    </Button>
+                  )
+                }
+              />
+
+              {showProductForm && (
+                <form
+                  onSubmit={(event) => void handleSaveProduct(event)}
+                  className="mt-5 space-y-4 rounded-md border border-petrol/30 bg-petrol-wash/40 p-4 md:p-5"
+                >
+                  <p className="font-semibold">
+                    {editingProductId === null ? "New product" : "Edit product"}
+                  </p>
+                  <Field label="Product name *">
+                    <input
+                      className={inputClass}
+                      required
+                      disabled={busy}
+                      value={productForm.name}
+                      onChange={(e) => updateProductField("name", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Description *">
+                    <textarea
+                      className={`${inputClass} leading-6`}
+                      rows={3}
+                      required
+                      disabled={busy}
+                      value={productForm.description}
+                      onChange={(e) => updateProductField("description", e.target.value)}
+                    />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Features" hint="One per line">
+                      <textarea
+                        className={`${inputClass} leading-6`}
+                        rows={5}
+                        disabled={busy}
+                        value={productForm.featuresText}
+                        onChange={(e) => updateProductField("featuresText", e.target.value)}
+                        placeholder={"Service point calling\nVisual customer guidance"}
+                      />
+                    </Field>
+                    <Field label="Use cases" hint="One per line">
+                      <textarea
+                        className={`${inputClass} leading-6`}
+                        rows={5}
+                        disabled={busy}
+                        value={productForm.useCasesText}
+                        onChange={(e) => updateProductField("useCasesText", e.target.value)}
+                        placeholder={"Retail service counters\nCustomer service desks"}
+                      />
+                    </Field>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" icon={Save} loading={saving} disabled={busy}>
+                      Save product
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => setShowProductForm(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              <div className="mt-5">
+                {loadingProducts ? (
+                  <p className="text-sm text-muted">Loading products…</p>
+                ) : products.length === 0 ? (
+                  <EmptyState icon={Package} title="No products yet">
+                    Add at least one product so the AI can match it to your leads.
+                  </EmptyState>
+                ) : (
+                  <ul className="divide-y divide-line border-y border-line">
+                    {products.map((product) => (
+                      <li key={product.id} className="py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-ink">{product.name}</p>
+                            <p className="mt-1 text-sm leading-6 text-ink-soft">{product.description}</p>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              icon={Pencil}
+                              disabled={busy}
+                              onClick={() => startEditProduct(product)}
+                              aria-label={`Edit ${product.name}`}
+                            />
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              icon={Trash2}
+                              loading={deletingId === product.id}
+                              disabled={busy}
+                              onClick={() => void handleDeleteProduct(product)}
+                              aria-label={`Delete ${product.name}`}
+                            />
+                          </div>
+                        </div>
+
+                        {(product.features.length > 0 || product.use_cases.length > 0) && (
+                          <div className="mt-3 grid gap-4 text-sm md:grid-cols-2">
+                            {(
+                              [
+                                ["Features", product.features],
+                                ["Use cases", product.use_cases],
+                              ] as const
+                            ).map(([label, items]) =>
+                              items.length === 0 ? null : (
+                                <div key={label}>
+                                  <Label>{label}</Label>
+                                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {items.map((item, index) => (
+                                      <li
+                                        key={index}
+                                        className="rounded border border-line bg-paper/60 px-2 py-0.5 text-[13px] text-ink-soft"
+                                      >
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {!selectedCompany && !creatingCompany && !loading && (
+            <EmptyState
+              icon={Building2}
+              title={companies.length === 0 ? "Add your company" : "Choose a company"}
+              action={
+                companies.length === 0 && (
+                  <Button icon={Plus} onClick={startNewCompany}>
+                    Add company
+                  </Button>
+                )
+              }
+            >
+              {companies.length === 0
+                ? "Describe what you sell. The AI uses this to match products and write accurate emails."
+                : "Pick a company on the left to see its profile and products."}
+            </EmptyState>
+          )}
         </div>
-      )}
-
-      <p className="flex items-center gap-2 text-xs text-slate-400">
-        <RefreshCw size={13} />
-        Company information and products are stored in PostgreSQL.
-      </p>
+      </div>
     </div>
   );
 }
+

@@ -35,24 +35,52 @@ ROLE_KEYWORDS = {
     "logistics": 2,
 }
 
+# Seniority: decision makers are worth more than individual roles.
+SENIORITY_KEYWORDS = {
+    "chief": 15,
+    "director": 15,
+    "head of": 15,
+    "vice president": 10,
+    "vp": 10,
+    "manager": 5,
+}
+
+STOP_WORDS = {"head", "with", "and", "the", "of", "for", "manager", "director"}
+
 
 def normalize(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
-def get_relevance_score(job_title: str) -> int:
+def get_relevance_score(job_title: str, target_role: str | None = None) -> int:
     """
-    Estimate role relevance to in-store queue management.
+    Estimate role relevance: area of work, seniority, and
+    overlap with the role the lead asked for.
 
     This is a heuristic score, not a model probability.
     """
     title = normalize(job_title)
+    words = set(re.findall(r"[a-z]+", title))
 
     score = 0
 
     for keyword, points in ROLE_KEYWORDS.items():
         if keyword in title:
             score += points
+
+    for keyword, points in SENIORITY_KEYWORDS.items():
+        # Match "vp" as a word, longer keywords as phrases.
+        if (keyword in words) if " " not in keyword else (keyword in title):
+            score += points
+
+    if target_role:
+        wanted = {
+            word
+            for word in re.findall(r"[a-z]{4,}", normalize(target_role))
+            if word not in STOP_WORDS
+        }
+        if wanted & words:
+            score += 25
 
     return min(score, 100)
 
@@ -144,6 +172,7 @@ def assess_source(
 def clean_and_rank_contacts(
     contacts: list[ContactCandidate],
     target_company: str,
+    target_role: str | None = None,
 ) -> list[tuple[ContactCandidate, int, str, list[str]]]:
     """
     Remove duplicates, handle generic email addresses,
@@ -194,7 +223,8 @@ def clean_and_rank_contacts(
                 )
 
         score = get_relevance_score(
-            contact.job_title
+            contact.job_title,
+            target_role,
         )
 
         status, warnings = assess_source(contact)

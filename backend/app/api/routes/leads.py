@@ -2,11 +2,9 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.lead import Lead
 from app.schemas.lead import LeadCreate, LeadResponse
 from app.services import lead_service
 
@@ -54,5 +52,34 @@ def get_lead(
 
 @router.get("", response_model=list[LeadResponse])
 def list_leads(db: DbSession):
-    statement = select(Lead).order_by(Lead.id.desc())
-    return db.scalars(statement).all()
+    return lead_service.list_leads(db)
+
+
+@router.put(
+    "/{lead_id}",
+    response_model=LeadResponse,
+)
+def update_lead(
+    lead_id: int,
+    lead: LeadCreate,
+    db: DbSession,
+):
+    updated = lead_service.update_lead(db=db, lead_id=lead_id, lead_data=lead)
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    return updated
+
+
+@router.delete(
+    "/{lead_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_lead(
+    lead_id: int,
+    db: DbSession,
+):
+    """Delete the lead and all of its outreach runs. Cannot be undone."""
+    if not lead_service.delete_lead(db=db, lead_id=lead_id):
+        raise HTTPException(status_code=404, detail="Lead not found")

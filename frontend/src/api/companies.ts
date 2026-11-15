@@ -11,6 +11,15 @@ export interface Company {
   description: string;
   target_customers: string;
   differentiators: string;
+
+  /** Signature added to every email by the app (not by the AI). */
+  sender_name: string | null;
+  sender_job_title: string | null;
+  sign_off: string | null;
+  sender_email: string | null;
+  sender_phone: string | null;
+  /** How every email asks the recipient to respond. */
+  cta_type: "call" | "email";
 }
 
 export type CompanyInput = Omit<Company, "id">;

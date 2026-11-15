@@ -6,11 +6,17 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.outreach import (
+    OutreachApprovalRequest,
     OutreachDraftUpdate,
     OutreachRunRequest,
     OutreachRunResponse,
 )
 from app.services import lead_service, outreach_service
+from app.services.outreach_service import (
+    FailedReviewNotAcknowledged,
+    NothingToRecheck,
+    OutreachRequestError,
+)
 from app.workflows.outreach_workflow import run_outreach
 
 router = APIRouter(prefix="/outreach", tags=["Outreach"])
@@ -26,42 +32,59 @@ async def run_outreach_for_lead(
     lead = lead_service.get_lead(db, request.lead_id)
 
     if lead is None:
-        raise HTTPException(status_code=404, detail="Lead not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
 
-    company_info = (
-        f"Company: {lead.company_name}\n"
-        f"Website: {lead.website or 'Not provided'}\n"
-        f"Industry: {lead.industry}\n"
-        f"Target Role: {lead.target_role}\n"
-        f"Potential Pain Point: {lead.pain_point}\n"
-        f"Recipient: {lead.recipient_name or 'Not provided'}\n"
-        "Research the company using public sources. "
-        "Treat potential pain points as unverified."
-    )
+    try:
+        prepared = outreach_service.prepare_outreach_run(db, lead, request)
+    except OutreachRequestError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
 
     result = await run_outreach(
-        company_info=company_info,
+        company_info=prepared.company_info,
         sender_offering=request.sender_offering,
+        outreach_context=prepared.outreach_context,
+        signature=prepared.signature,
     )
+    result = outreach_service.flag_missing_signature(result, prepared.signature)
 
-    saved_run = outreach_service.save_outreach_run(
+    return outreach_service.save_outreach_run(
         db=db,
         lead_id=lead.id,
         result=result,
+        context=prepared.snapshot,
     )
 
-    return saved_run
+
+@router.get(
+    "/runs",
+    response_model=list[OutreachRunResponse],
+)
+def list_recent_runs(db: DbSession):
+    """The 100 newest runs across all leads, for the Drafts page."""
+    return outreach_service.list_outreach_runs(db)
 
 
 @router.get(
     "/runs/{run_id}",
     response_model=OutreachRunResponse,
 )
-def get_run(run_id: int, db: DbSession):
+def get_run(
+    run_id: int,
+    db: DbSession,
+):
     run = outreach_service.get_outreach_run(db, run_id)
 
     if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Run not found",
+        )
 
     return run
 
@@ -70,14 +93,22 @@ def get_run(run_id: int, db: DbSession):
     "/leads/{lead_id}/runs",
     response_model=list[OutreachRunResponse],
 )
-def get_lead_runs(lead_id: int, db: DbSession):
+def get_lead_runs(
+    lead_id: int,
+    db: DbSession,
+):
     lead = lead_service.get_lead(db, lead_id)
 
     if lead is None:
-        raise HTTPException(status_code=404, detail="Lead not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
 
-    return outreach_service.list_outreach_runs(db, lead_id)
-
+    return outreach_service.list_outreach_runs(
+        db,
+        lead_id,
+    )
 
 
 @router.put(
@@ -96,7 +127,39 @@ def update_outreach_draft(
     )
 
     if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Run not found",
+        )
+
+    return run
+
+
+@router.post(
+    "/runs/{run_id}/review",
+    response_model=OutreachRunResponse,
+)
+async def recheck_outreach_draft(
+    run_id: int,
+    db: DbSession,
+):
+    """Run the AI reviewer on the human-edited draft."""
+    try:
+        run = await outreach_service.recheck_draft(db=db, run_id=run_id)
+    except NothingToRecheck as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Edit and save the email first. The AI has "
+                "already reviewed its own draft."
+            ),
+        ) from exc
+
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run not found",
+        )
 
     return run
 
@@ -108,14 +171,29 @@ def update_outreach_draft(
 def approve_outreach_draft(
     run_id: int,
     db: DbSession,
+    request: OutreachApprovalRequest | None = None,
 ):
-    run = outreach_service.approve_draft(
-        db=db,
-        run_id=run_id,
-    )
+    acknowledge = request.acknowledge_failed_review if request else False
+
+    try:
+        run = outreach_service.approve_draft(
+            db=db,
+            run_id=run_id,
+            acknowledge_failed_review=acknowledge,
+        )
+    except FailedReviewNotAcknowledged as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This draft's latest AI review failed. Confirm you "
+                "have checked the flagged issues to approve it anyway."
+            ),
+        ) from exc
 
     if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Run not found",
+        )
 
     return run
-

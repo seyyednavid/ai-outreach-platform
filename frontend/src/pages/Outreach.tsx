@@ -1,577 +1,343 @@
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Play } from "lucide-react";
 
-import { useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Clock3,
-  LoaderCircle,
-  Mail,
-  Play,
-} from "lucide-react";
-
+import { getCompanies, type Company } from "../api/companies";
+import { type ReviewedContact } from "../api/contacts";
 import { getLeads, type Lead } from "../api/leads";
-import {
-  getLeadRuns,
-  runOutreach,
-  type OutreachRun,
-} from "../api/outreach";
+import { type SolutionMatchResponse } from "../api/matching";
+import { runOutreach, type SelectedOutreachContact } from "../api/outreach";
 
-import EmailEditor from "../components/EmailEditor";
-import GmailDraftPanel from "../components/GmailDraftPanel";
-import SolutionMatchingPanel from "../components/SolutionMatchingPanel";
 import ContactDiscoveryPanel from "../components/ContactDiscoveryPanel";
-import type { ReviewedContact } from "../api/contacts";
-
+import SolutionMatchingPanel from "../components/SolutionMatchingPanel";
+import { Badge, Button, Card, CardHeader, Field, Label, Notice, PageHeader } from "../components/ui";
+import { getErrorMessage, inputClass } from "../components/ui-classes";
 
 const defaultOffering =
-  "We provide queue management and customer flow solutions " +
-  "for retail environments.";
+  "We provide queue management and customer flow solutions for retail environments.";
 
-const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 " +
-  "text-sm outline-none focus:border-indigo-500 focus:ring-2 " +
-  "focus:ring-indigo-100";
+function toSelectedContact(contact: ReviewedContact | null): SelectedOutreachContact | undefined {
+  if (!contact) return undefined;
+  switch (contact.evidence_status) {
+    case "VERIFIED":
+    case "NEEDS_REVIEW":
+    case "EXCERPT_CONSISTENT":
+      return {
+        name: contact.name,
+        job_title: contact.job_title,
+        source_url: contact.source_url,
+        evidence_status: contact.evidence_status,
+      };
+    default:
+      return undefined;
+  }
+}
 
+/** Page 1 of 2: choose what the AI should write, then generate. */
 export default function Outreach() {
+  const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadId, setLeadId] = useState("");
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [leadId, setLeadId] = useState<number | null>(null);
+  const [companyId, setCompanyId] = useState<number | null>(null);
   const [offering, setOffering] = useState(defaultOffering);
-
-  const [runs, setRuns] = useState<OutreachRun[]>([]);
-  const [selectedRun, setSelectedRun] =
-    useState<OutreachRun | null>(null);
-
-  const [loadingLeads, setLoadingLeads] = useState(true);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [selectedMatch, setSelectedMatch] = useState<SolutionMatchResponse | null>(null);
+  const [selectedContact, setSelectedContact] = useState<ReviewedContact | null>(null);
+  const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedContact, setSelectedContact] =
-  useState<ReviewedContact | null>(null);
 
-  // Prevent old history responses from replacing a newer selection.
-  const historyRequestRef = useRef(0);
-
-  // Load leads when the page opens.
   useEffect(() => {
     let cancelled = false;
-
-    getLeads()
-      .then((data) => {
-        if (!cancelled) {
-          setLeads(data);
-        }
+    Promise.all([getLeads(), getCompanies()])
+      .then(([leadData, companyData]) => {
+        if (cancelled) return;
+        setLeads(leadData);
+        setCompanies(companyData);
+        if (companyData.length === 1) setCompanyId(companyData[0].id);
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load leads",
-          );
-        }
+        if (!cancelled) setError(getErrorMessage(err, "Could not load your leads and companies."));
       })
       .finally(() => {
-        if (!cancelled) {
-          setLoadingLeads(false);
-        }
+        if (!cancelled) setLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Load outreach history for the selected lead.
-  async function handleLeadChange(value: string) {
-    const requestId = ++historyRequestRef.current;
+  const lead = leads.find((item) => item.id === leadId) ?? null;
+  const company = companies.find((item) => item.id === companyId) ?? null;
+  const match =
+    selectedMatch?.lead_id === leadId &&
+    selectedMatch.company_id === companyId &&
+    selectedMatch.recommended_product_id !== null
+      ? selectedMatch
+      : null;
+  const offeringValid = offering.trim().length >= 10;
+  const hasSignature = Boolean(company?.sender_name);
+  const canRun = leadId !== null && companyId !== null && offeringValid && !running;
 
-    setLeadId(value);
+  function chooseLead(value: string) {
+    setLeadId(value ? Number(value) : null);
+    setSelectedMatch(null);
     setSelectedContact(null);
-    setRuns([]);
-    setSelectedRun(null);
     setError(null);
-
-    if (!value) {
-      setLoadingHistory(false);
-      return;
-    }
-
-    setLoadingHistory(true);
-
-    try {
-      const data = await getLeadRuns(Number(value));
-
-      if (requestId !== historyRequestRef.current) {
-        return;
-      }
-
-      setRuns(data);
-      setSelectedRun(data[0] ?? null);
-    } catch (err) {
-      if (requestId !== historyRequestRef.current) {
-        return;
-      }
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load history",
-      );
-    } finally {
-      if (requestId === historyRequestRef.current) {
-        setLoadingHistory(false);
-      }
-    }
   }
 
-  // Run the existing Research -> Write -> Review -> Improve workflow.
-  async function handleRun() {
-    if (!leadId || offering.trim().length < 10 || running) {
-      return;
-    }
+  function chooseCompany(value: string) {
+    setCompanyId(value ? Number(value) : null);
+    setSelectedMatch(null);
+    setError(null);
+  }
 
-    const currentLeadId = Number(leadId);
+  async function handleRun() {
+    if (!canRun || leadId === null || companyId === null) return;
+    const contact = toSelectedContact(selectedContact);
 
     setRunning(true);
     setError(null);
-
     try {
-      const result = await runOutreach(
-        currentLeadId,
-        offering.trim(),
-      );
-
-      setRuns((current) => [result, ...current]);
-      setSelectedRun(result);
+      const result = await runOutreach({
+        lead_id: leadId,
+        sender_offering: offering.trim(),
+        seller_company_id: companyId,
+        ...(match ? { selected_product_id: match.recommended_product_id! } : {}),
+        ...(contact ? { selected_contact: contact } : {}),
+      });
+      navigate(`/drafts?lead=${leadId}&run=${result.id}`);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Workflow failed",
+        getErrorMessage(err, "The AI workflow failed. Your choices are kept, so you can try again."),
       );
-    } finally {
       setRunning(false);
     }
   }
 
-  // Called by EmailEditor after saving or approving an email.
-  function handleRunUpdate(updated: OutreachRun) {
-    setSelectedRun(updated);
-
-    setRuns((current) =>
-      current.map((run) =>
-        run.id === updated.id ? updated : run,
-      ),
-    );
-  }
-
-  const selectedLeadId = leadId ? Number(leadId) : null;
-
   return (
-    <div className="space-y-7">
-      {/* Page Header */}
-      <div>
-        <h2 className="text-3xl font-bold">
-          Outreach Workspace
-        </h2>
+    <div className="space-y-8">
+      <PageHeader
+        title="New draft"
+        description="Step 1 of 2. Tell the AI who to write to and what to offer. Next, you review and approve the draft on the Drafts page."
+      />
 
-        <p className="mt-2 text-slate-500">
-          Research companies, match products, discover contacts,
-          generate emails, and review AI results.
-        </p>
-      </div>
+      {error && <Notice tone="bad">{error}</Notice>}
 
-      {/* General Errors */}
-      {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-        >
-          <AlertCircle size={18} />
-          {error}
-        </div>
-      )}
-
-      {/* Step 1: Select Lead */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-lg font-semibold">
-          Step 1 — Select Target Lead
-        </h3>
-
-        <label className="block space-y-2 text-sm font-medium">
-          Select Lead
-
-          <select
-            className={inputClass}
-            value={leadId}
-            disabled={loadingLeads || running}
-            onChange={(event) =>
-              void handleLeadChange(event.target.value)
-            }
-          >
-            <option value="">
-              Choose a company...
-            </option>
-
-            {leads.map((lead) => (
-              <option key={lead.id} value={lead.id}>
-                {lead.company_name} (#{lead.id})
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {loadingLeads && (
-          <p className="mt-3 text-sm text-slate-500">
-            Loading leads...
-          </p>
-        )}
-      </section>
-        
-    {/* Step 2: AI Solution Matching */}
-    <SolutionMatchingPanel
-      key={`matching-${selectedLeadId ?? "no-lead"}`}
-      leadId={selectedLeadId}
-    />
-
-    {/* Step 3: Contact Discovery */}
-    <ContactDiscoveryPanel
-      key={`contacts-${selectedLeadId ?? "no-lead"}`}
-      leadId={selectedLeadId}
-      onSelectContact={setSelectedContact}
-    />
-
-
-  {selectedContact && (
-    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm">
-      <p className="font-semibold text-indigo-900">
-        Selected Contact: {selectedContact.name}
-      </p>
-      <p className="mt-1 text-indigo-700">
-        {selectedContact.job_title}
-      </p>
-      <p className="mt-2 text-xs text-indigo-600">
-        This contact has not yet been connected to
-        Email Generation.
-      </p>
-    </div>
-  )}
-
-      {/* Step 3: Generate Outreach */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="mb-5 text-lg font-semibold">
-          Step 4 — Generate Outreach
-        </h3>
-
-        <p className="mb-5 text-sm text-slate-500">
-          Run the AI research, writing, review, and improvement
-          workflow for your selected lead.
-        </p>
-
-        <label className="block space-y-2 text-sm font-medium">
-          Your Product / Service Offering
-
-          <textarea
-            className={inputClass}
-            rows={3}
-            value={offering}
-            disabled={running}
-            onChange={(event) =>
-              setOffering(event.target.value)
-            }
-          />
-        </label>
-
-        <p className="mt-2 text-xs text-slate-500">
-          Currently, the email workflow uses the offering
-          entered above. The Solution Matching recommendation
-          is a separate preview and is not automatically
-          passed to the Writer Agent yet.
-        </p>
-
-        <button
-          type="button"
-          onClick={() => void handleRun()}
-          disabled={
-            !leadId ||
-            offering.trim().length < 10 ||
-            running ||
-            loadingHistory
-          }
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
-        >
-          {running ? (
-            <LoaderCircle
-              size={18}
-              className="animate-spin"
-            />
-          ) : (
-            <Play size={18} />
-          )}
-
-          {running
-            ? "Running AI Agents..."
-            : "Run AI Outreach"}
-        </button>
-
-        {running && (
-          <p
-            role="status"
-            className="mt-4 text-sm text-indigo-600"
-          >
-            Researching, writing, and reviewing your email.
-            This can take a little while.
-          </p>
-        )}
-      </section>
-
-      {/* Step 4: History and Results */}
-      <div className="grid items-start gap-6 xl:grid-cols-[1fr_2fr]">
-        {/* Run History */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Clock3
-              size={19}
-              className="text-indigo-600"
-            />
-
-            <h3 className="font-semibold">
-              Run History
-            </h3>
-          </div>
-
-          {loadingHistory ? (
-            <p className="text-sm text-slate-500">
-              Loading history...
-            </p>
-          ) : runs.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              Select a lead to see its outreach history.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {runs.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  onClick={() => setSelectedRun(run)}
-                  className={`w-full rounded-xl border p-3 text-left text-sm transition ${
-                    selectedRun?.id === run.id
-                      ? "border-indigo-400 bg-indigo-50"
-                      : "border-slate-200 hover:bg-slate-50"
-                  }`}
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          {/* 1. Lead */}
+          <Card className="p-5 md:p-6">
+            <CardHeader step={1} title="Choose a lead" description="The company you want to reach." />
+            <div className="mt-5">
+              <Field label="Lead">
+                <select
+                  className={inputClass}
+                  value={leadId ?? ""}
+                  disabled={loading || running}
+                  onChange={(event) => chooseLead(event.target.value)}
                 >
-                  <div className="flex justify-between gap-2">
-                    <span className="font-semibold">
-                      Run #{run.id}
-                    </span>
-
-                    <span className="font-medium">
-                      {run.review.overall_score}/10
-                    </span>
-                  </div>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    {new Date(
-                      run.created_at,
-                    ).toLocaleString()}
-                  </p>
-
-                  <div className="mt-2">
-                    {run.human_approved ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
-                        <CheckCircle2 size={13} />
-                        Human Approved
-                      </span>
-                    ) : (
-                      <span className="text-xs text-amber-700">
-                        Awaiting Human Approval
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Selected Run */}
-        <div className="space-y-6">
-          {!selectedRun ? (
-            <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-slate-500">
-              <Mail
-                className="mx-auto mb-3"
-                size={32}
-              />
-
-              Run the workflow or select a previous result.
-            </section>
-          ) : (
-            <>
-              {/* Editable Email and Human Approval */}
-              <EmailEditor
-                key={selectedRun.id}
-                run={selectedRun}
-                onUpdate={handleRunUpdate}
-              />
-
-              {/* Gmail Draft */}
-              <GmailDraftPanel
-                key={selectedRun.id}
-                run={selectedRun}
-                recipientEmail={
-                  leads.find(
-                    (lead) =>
-                      lead.id === selectedRun.lead_id,
-                  )?.recipient_email ?? ""
-                }
-              />
-
-              {/* AI Review */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2
-                    size={20}
-                    className="text-indigo-600"
-                  />
-
-                  <h3 className="text-lg font-semibold">
-                    AI Review
-                  </h3>
-                </div>
-
-                <p className="mt-4 text-3xl font-bold">
-                  {selectedRun.review.overall_score}
-
-                  <span className="text-lg font-normal text-slate-400">
-                    /10
-                  </span>
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  {[
-                    [
-                      "Personalization",
-                      selectedRun.review.personalization,
-                    ],
-                    [
-                      "Clarity",
-                      selectedRun.review.clarity,
-                    ],
-                    [
-                      "Relevance",
-                      selectedRun.review.relevance,
-                    ],
-                    [
-                      "CTA Quality",
-                      selectedRun.review.cta_quality,
-                    ],
-                  ].map(([label, score]) => (
-                    <div
-                      key={label}
-                      className="rounded-lg bg-slate-50 p-3"
-                    >
-                      <p className="text-slate-500">
-                        {label}
-                      </p>
-
-                      <p className="mt-1 font-semibold">
-                        {score}/10
-                      </p>
-                    </div>
+                  <option value="">{loading ? "Loading leads…" : "Choose a company…"}</option>
+                  {leads.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.company_name} — {item.industry}
+                    </option>
                   ))}
-                </div>
-
-                <p className="mt-4 text-sm text-slate-600">
-                  Improvements performed:{" "}
-                  <strong>
-                    {selectedRun.improvement_count}
-                  </strong>
+                </select>
+              </Field>
+              {!loading && leads.length === 0 && (
+                <p className="mt-3 text-sm text-muted">
+                  No leads yet. <Link to="/leads" className="font-medium text-petrol hover:underline">Add one on the Leads page</Link>.
                 </p>
-
-                {selectedRun.review.unsupported_claims.length >
-                  0 && (
-                  <div className="mt-4 text-sm text-red-700">
-                    <p className="font-semibold">
-                      Unsupported Claims
-                    </p>
-
-                    <ul className="mt-2 list-disc pl-5">
-                      {selectedRun.review.unsupported_claims.map(
-                        (claim, index) => (
-                          <li key={index}>
-                            {claim}
-                          </li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {selectedRun.review.improvement_suggestions
-                  .length > 0 && (
-                  <div className="mt-4 text-sm">
-                    <p className="font-semibold">
-                      Suggestions
-                    </p>
-
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
-                      {selectedRun.review.improvement_suggestions.map(
-                        (suggestion, index) => (
-                          <li key={index}>
-                            {suggestion}
-                          </li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                <p className="mt-4 text-xs text-slate-500">
-                  AI scores refer to the generated draft,
-                  not any subsequent human edits.
-                </p>
-              </section>
-
-              {/* Company Research */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h3 className="text-lg font-semibold">
-                  Company Research
-                </h3>
-
-                <div className="mt-4 space-y-3">
-                  {selectedRun.research.verified_findings.map(
-                    (finding, index) => (
-                      <div
-                        key={index}
-                        className="text-sm"
-                      >
-                        <p>
-                          {finding.claim}
-                        </p>
-
-                        <a
-                          href={finding.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 inline-block text-xs text-indigo-600 hover:underline"
-                        >
-                          View source
-                        </a>
-                      </div>
-                    ),
+              )}
+              {lead && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <p className="leading-6 text-muted">
+                    Role to reach: <span className="text-ink-soft">{lead.target_role}</span>
+                  </p>
+                  {lead.run_count > 0 && (
+                    <Link
+                      to={`/drafts?lead=${lead.id}`}
+                      className="inline-flex items-center gap-1 font-medium text-petrol hover:underline"
+                    >
+                      {lead.run_count} earlier draft{lead.run_count === 1 ? "" : "s"} <ArrowRight size={14} />
+                    </Link>
                   )}
                 </div>
+              )}
+            </div>
+          </Card>
 
-                <p className="mt-4 text-xs text-slate-500">
-                  Sources and claims are AI-generated and
-                  require verification.
-                </p>
-              </section>
-            </>
-          )}
+          {/* 2. Company and signature */}
+          <Card className="p-5 md:p-6">
+            <CardHeader
+              step={2}
+              title="Choose your company"
+              description="Your company signs the email and decides how it ends: a phone call or an email reply."
+            />
+            <div className="mt-5 space-y-3">
+              <Field label="Your company">
+                <select
+                  className={inputClass}
+                  value={companyId ?? ""}
+                  disabled={loading || running}
+                  onChange={(event) => chooseCompany(event.target.value)}
+                >
+                  <option value="">{loading ? "Loading…" : "Choose your company…"}</option>
+                  {companies.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {company &&
+                (hasSignature ? (
+                  <div className="rounded-md border border-line bg-paper/60 px-4 py-3 text-sm">
+                    <Label>Signature and ending</Label>
+                    <p className="mt-1 text-ink">
+                      {company.sender_name}
+                      {company.sender_job_title && `, ${company.sender_job_title}`}
+                    </p>
+                    <p className="text-muted">
+                      Asks for {company.cta_type === "email" ? "a reply by email" : "a short phone call"}
+                    </p>
+                  </div>
+                ) : (
+                  <Notice tone="warn" title="No sender details yet">
+                    Without your name the draft cannot pass review.{" "}
+                    <Link to="/company" className="font-semibold underline underline-offset-2">
+                      Add them in My Company
+                    </Link>
+                    .
+                  </Notice>
+                ))}
+            </div>
+          </Card>
+
+          {/* 3. Product (optional) */}
+          <SolutionMatchingPanel
+            key={`match-${leadId ?? "none"}-${companyId ?? "none"}`}
+            step={3}
+            leadId={leadId}
+            companyId={companyId}
+            onMatchChange={setSelectedMatch}
+          />
+
+          {/* 4. Contact (optional) */}
+          <ContactDiscoveryPanel
+            key={`contacts-${leadId ?? "none"}`}
+            step={4}
+            leadId={leadId}
+            onSelectContact={setSelectedContact}
+          />
+
+          {/* 5. Offering */}
+          <Card className="p-5 md:p-6">
+            <CardHeader
+              step={5}
+              title="Describe your offering"
+              description="One or two sentences. The AI may only claim what is written here or in your product catalogue."
+            />
+            <div className="mt-5">
+              <Field label="Offering" hint={offeringValid ? undefined : "At least 10 characters"}>
+                <textarea
+                  className={`${inputClass} leading-6`}
+                  rows={3}
+                  value={offering}
+                  disabled={running}
+                  onChange={(event) => setOffering(event.target.value)}
+                />
+              </Field>
+            </div>
+          </Card>
         </div>
+
+        {/* Run brief */}
+        <aside className="lg:sticky lg:top-6">
+          <Card className="overflow-hidden">
+            <div className="border-b border-line bg-ink px-5 py-3">
+              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-signal">
+                Run brief
+              </p>
+            </div>
+            <dl className="divide-y divide-line text-sm">
+              <BriefRow label="Lead" value={lead?.company_name} empty="Not chosen" />
+              <BriefRow
+                label="Signed by"
+                value={company ? company.sender_name ?? undefined : undefined}
+                empty={company ? "No sender name" : "Choose your company"}
+                warn={company !== null && !hasSignature}
+              />
+              <div className="px-5 py-3.5">
+                <dt><Label>Product</Label></dt>
+                <dd className="mt-1">
+                  {match ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-ink">{match.recommended_product_name}</span>
+                      <Badge tone="warn">Fit unconfirmed</Badge>
+                    </span>
+                  ) : (
+                    <span className="text-muted">Offering text only</span>
+                  )}
+                </dd>
+              </div>
+              <div className="px-5 py-3.5">
+                <dt><Label>Contact</Label></dt>
+                <dd className="mt-1">
+                  {selectedContact ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-ink">{selectedContact.name}</span>
+                      <Badge tone="warn">Not verified</Badge>
+                    </span>
+                  ) : (
+                    <span className="text-muted">Neutral greeting</span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <div className="border-t border-line px-5 py-4">
+              <Button
+                icon={Play}
+                loading={running}
+                disabled={!canRun}
+                onClick={() => void handleRun()}
+                className="w-full"
+              >
+                {running ? "Writing your draft…" : "Generate draft"}
+              </Button>
+              <p className="mt-3 text-xs leading-5 text-muted" role={running ? "status" : undefined}>
+                {running
+                  ? "Researching, writing and checking. Usually 15–30 seconds."
+                  : leadId === null || companyId === null
+                    ? "Choose a lead and your company to start."
+                    : "Nothing is sent. You review and approve the draft next."}
+              </p>
+            </div>
+          </Card>
+        </aside>
       </div>
+    </div>
+  );
+}
+
+function BriefRow({
+  label,
+  value,
+  empty,
+  warn = false,
+}: {
+  label: string;
+  value: string | undefined;
+  empty: string;
+  warn?: boolean;
+}) {
+  return (
+    <div className="px-5 py-3.5">
+      <dt><Label>{label}</Label></dt>
+      <dd className={`mt-1 ${value ? "font-medium text-ink" : warn ? "font-medium text-warn" : "text-muted"}`}>
+        {value ?? empty}
+      </dd>
     </div>
   );
 }
