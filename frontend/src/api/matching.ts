@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -19,7 +20,7 @@ export async function previewSolutionMatch(
   companyId: number,
   leadId: number,
 ): Promise<SolutionMatchResponse> {
-  const response = await fetch(`${API_BASE_URL}/matching/preview`, {
+  const response = await apiFetch(`${API_BASE_URL}/matching/preview`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

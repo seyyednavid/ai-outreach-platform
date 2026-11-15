@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -31,7 +32,7 @@ export interface ContactDiscoveryResponse {
 export async function discoverContacts(
   leadId: number,
 ): Promise<ContactDiscoveryResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/contacts/discover`,
     {
       method: "POST",

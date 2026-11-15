@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -11,7 +12,7 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/dashboard/stats`,
     { cache: "no-store" },
   );

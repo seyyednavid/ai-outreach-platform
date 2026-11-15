@@ -1,5 +1,6 @@
 import os
-from collections.abc import Generator
+import uuid
+from collections.abc import Callable, Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,8 +10,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 # Register SQLAlchemy models
 import app.models
+from app.api.deps import get_current_user
 from app.core.database import Base, get_db
 from app.main import app
+from app.models.organization import Organization
+from app.models.user import User
+from app.services.user_service import CurrentUser
 
 # --------------------------------------------------
 # Test database configuration
@@ -47,6 +52,8 @@ TestSessionLocal = sessionmaker(
 
 @pytest.fixture(scope="session")
 def setup_test_database():
+    # Start clean, so a crashed earlier run cannot leave old tables.
+    Base.metadata.drop_all(bind=test_engine)
     Base.metadata.create_all(bind=test_engine)
 
     yield
@@ -59,6 +66,46 @@ def setup_test_database():
 def session_factory(setup_test_database) -> sessionmaker[Session]:
     """Open sessions on the test database to seed or clean records."""
     return TestSessionLocal
+
+
+# --------------------------------------------------
+# Signed-in users (login is replaced, never called)
+# --------------------------------------------------
+
+TEST_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
+OTHER_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")
+
+
+@pytest.fixture(scope="session")
+def test_users(setup_test_database) -> tuple[CurrentUser, CurrentUser]:
+    """Two users in two separate organisations."""
+    with TestSessionLocal() as session:
+        orgs = [Organization(name="Test org"), Organization(name="Other org")]
+        session.add_all(orgs)
+        session.flush()
+
+        users = [
+            User(id=TEST_USER_ID, email="tester@example.com", organization_id=orgs[0].id),
+            User(id=OTHER_USER_ID, email="other@example.com", organization_id=orgs[1].id),
+        ]
+        session.add_all(users)
+        session.commit()
+
+        first, second = (
+            CurrentUser(id=u.id, email=u.email, organization_id=u.organization_id)
+            for u in users
+        )
+        return first, second
+
+
+@pytest.fixture
+def test_user(test_users) -> CurrentUser:
+    return test_users[0]
+
+
+@pytest.fixture
+def other_user(test_users) -> CurrentUser:
+    return test_users[1]
 
 
 # --------------------------------------------------
@@ -80,19 +127,36 @@ def client() -> Generator[TestClient, None, None]:
 @pytest.fixture
 def db_client(
     setup_test_database,
+    test_user: CurrentUser,
 ) -> Generator[TestClient, None, None]:
+    """A client signed in as test_user."""
 
     def override_get_db() -> Generator[Session, None, None]:
         with TestSessionLocal() as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: test_user
 
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture
+def act_as(db_client: TestClient) -> Callable[[CurrentUser | None], None]:
+    """Switch db_client to another user, or to nobody (None)."""
+
+    def switch(user: CurrentUser | None) -> None:
+        if user is None:
+            app.dependency_overrides.pop(get_current_user, None)
+        else:
+            app.dependency_overrides[get_current_user] = lambda: user
+
+    return switch
 
 
 # --------------------------------------------------

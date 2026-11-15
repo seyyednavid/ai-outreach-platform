@@ -1,9 +1,6 @@
-from typing import Annotated
+from fastapi import APIRouter
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-
-from app.core.database import get_db
+from app.api.deps import AuthUser, DbSession
 from app.schemas.dashboard import DashboardStats
 from app.services.dashboard_service import get_dashboard_stats
 
@@ -12,9 +9,7 @@ router = APIRouter(
     tags=["Dashboard"],
 )
 
-DbSession = Annotated[Session, Depends(get_db)]
-
 
 @router.get("/stats", response_model=DashboardStats)
-def dashboard_stats(db: DbSession):
-    return get_dashboard_stats(db)
+def dashboard_stats(db: DbSession, user: AuthUser):
+    return get_dashboard_stats(db, user.organization_id)

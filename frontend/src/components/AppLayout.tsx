@@ -4,8 +4,11 @@ import {
   FilePlus,
   Inbox,
   LayoutDashboard,
+  LogOut,
   Users,
 } from "lucide-react";
+
+import { useAuth } from "../auth/auth-context";
 
 // In the order you use them: set up, then write, then review.
 const navigation = [
@@ -19,6 +22,9 @@ const navigation = [
 const pipeline = ["Research", "Write", "Review", "Improve ×2", "You approve", "Gmail draft"];
 
 export default function AppLayout() {
+  const { session, signOut } = useAuth();
+  const email = session?.user.email ?? "";
+
   return (
     <div className="min-h-screen bg-paper text-ink md:flex">
       <aside className="bg-ink text-white md:sticky md:top-0 md:h-screen md:w-60 md:shrink-0">
@@ -84,6 +90,21 @@ export default function AppLayout() {
             <p className="mt-4 text-xs leading-5 text-white/45">
               Nothing is ever sent automatically.
             </p>
+          </div>
+
+          {/* Signed-in account */}
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3 md:mt-6 md:pt-4">
+            <p className="min-w-0 truncate text-xs text-white/60" title={email}>
+              {email}
+            </p>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              <LogOut size={14} />
+              Sign out
+            </button>
           </div>
         </div>
       </aside>

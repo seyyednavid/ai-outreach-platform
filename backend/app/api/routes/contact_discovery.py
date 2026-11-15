@@ -1,12 +1,10 @@
 import json
-from typing import Annotated
 
 from agents import Runner
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException
 
 from app.agents.contact_discovery_agent import contact_discovery_agent
-from app.core.database import get_db
+from app.api.deps import AuthUser, DbSession
 from app.models.lead import Lead
 from app.schemas.contact_discovery import (
     ContactDiscoveryRequest,
@@ -15,15 +13,13 @@ from app.schemas.contact_discovery import (
     ReviewedContact,
 )
 from app.services.contact_quality import clean_and_rank_contacts
+from app.services.ownership import get_owned
 from app.services.source_verification import site_domain, verify_contact_source
 
 router = APIRouter(
     prefix="/contacts",
     tags=["Contact Discovery"],
 )
-
-DbSession = Annotated[Session, Depends(get_db)]
-
 
 @router.post(
     "/discover",
@@ -32,9 +28,10 @@ DbSession = Annotated[Session, Depends(get_db)]
 async def discover_contacts(
     request: ContactDiscoveryRequest,
     db: DbSession,
+    user: AuthUser,
 ):
     # Step 1: Get the target lead from PostgreSQL.
-    lead = db.get(Lead, request.lead_id)
+    lead = get_owned(db, Lead, user.organization_id, request.lead_id)
 
     if lead is None:
         raise HTTPException(

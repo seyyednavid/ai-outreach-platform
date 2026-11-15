@@ -18,6 +18,7 @@ from app.schemas.outreach import (
     RunProductSnapshot,
     RunSellerSnapshot,
 )
+from app.services.ownership import get_owned
 from app.workflows.outreach_workflow import (
     OutreachResult,
     latest_review_passed,
@@ -221,7 +222,9 @@ def prepare_outreach_run(
     snapshot = OutreachRunContext(sender_offering=request.sender_offering)
 
     if request.seller_company_id is not None:
-        seller = db.get(Company, request.seller_company_id)
+        seller = get_owned(
+            db, Company, lead.organization_id, request.seller_company_id
+        )
 
         if seller is None:
             raise OutreachRequestError(404, "Seller company not found")
@@ -273,14 +276,19 @@ def snapshot_for_recheck(db: Session, run: OutreachRun) -> OutreachRunContext:
 
     seller = snapshot.seller_company
     if seller is not None and seller.description is None:
-        current = db.get(Company, seller.id)
+        current = get_owned(db, Company, run.organization_id, seller.id)
         if current is not None:
             snapshot.seller_company = seller_snapshot(current)
 
     product = snapshot.selected_product
     if product is not None and product.description is None:
         current = db.get(CompanyProduct, product.id)
-        if current is not None:
+        owner = (
+            get_owned(db, Company, run.organization_id, current.company_id)
+            if current is not None
+            else None
+        )
+        if current is not None and owner is not None:
             snapshot.selected_product = product_snapshot(current)
 
     return snapshot
@@ -288,18 +296,19 @@ def snapshot_for_recheck(db: Session, run: OutreachRun) -> OutreachRunContext:
 
 def save_outreach_run(
     db: Session,
-    lead_id: int,
+    lead: Lead,
     result: OutreachResult,
     context: OutreachRunContext | None = None,
 ) -> OutreachRun:
     previous = db.scalar(
         select(func.max(OutreachRun.lead_run_number)).where(
-            OutreachRun.lead_id == lead_id,
+            OutreachRun.lead_id == lead.id,
         )
     )
 
     run = OutreachRun(
-        lead_id=lead_id,
+        organization_id=lead.organization_id,
+        lead_id=lead.id,
         lead_run_number=(previous or 0) + 1,
         research=result.research.model_dump(mode="json"),
         email=result.email.model_dump(mode="json"),
@@ -320,18 +329,22 @@ def save_outreach_run(
 
 def get_outreach_run(
     db: Session,
+    organization_id: int,
     run_id: int,
 ) -> OutreachRun | None:
-    return db.get(OutreachRun, run_id)
+    return get_owned(db, OutreachRun, organization_id, run_id)
 
 
 def list_outreach_runs(
     db: Session,
+    organization_id: int,
     lead_id: int | None = None,
     limit: int = 100,
 ) -> list[OutreachRun]:
-    """Newest first; all leads when lead_id is None."""
-    statement = select(OutreachRun)
+    """Newest first; all of the organisation's leads when lead_id is None."""
+    statement = select(OutreachRun).where(
+        OutreachRun.organization_id == organization_id
+    )
 
     if lead_id is not None:
         statement = statement.where(OutreachRun.lead_id == lead_id)
@@ -346,10 +359,11 @@ def list_outreach_runs(
 
 def update_draft(
     db: Session,
+    organization_id: int,
     run_id: int,
     email: EmailDraft,
 ) -> OutreachRun | None:
-    run = db.get(OutreachRun, run_id)
+    run = get_outreach_run(db, organization_id, run_id)
 
     if run is None:
         return None
@@ -370,13 +384,14 @@ def update_draft(
 
 async def recheck_draft(
     db: Session,
+    organization_id: int,
     run_id: int,
 ) -> OutreachRun | None:
     """
     Ask the Reviewer to check the human-edited draft against
     the evidence saved with the run. Never rewrites the email.
     """
-    run = db.get(OutreachRun, run_id)
+    run = get_outreach_run(db, organization_id, run_id)
 
     if run is None:
         return None
@@ -403,10 +418,11 @@ async def recheck_draft(
 
 def approve_draft(
     db: Session,
+    organization_id: int,
     run_id: int,
     acknowledge_failed_review: bool = False,
 ) -> OutreachRun | None:
-    run = db.get(OutreachRun, run_id)
+    run = get_outreach_run(db, organization_id, run_id)
 
     if run is None:
         return None
