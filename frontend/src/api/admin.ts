@@ -31,13 +31,49 @@ export interface UsageOverview {
   total_estimated_cost_usd: number;
 }
 
+export interface QualityStats {
+  drafts: number;
+  /** The AI's own draft passed review (score 8+, no flags left). */
+  ai_passed: number;
+  first_try_passed: number;
+  average_score: number | null;
+  average_rewrites: number | null;
+  edited_by_human: number;
+  edits_checked_by_ai: number;
+  edits_failed_check: number;
+  human_approved: number;
+  /** Approved although the latest AI review failed. */
+  overrides: number;
+  flags_kept: number;
+  /** Reviewer flags dropped by code (quote not in the email, or supported). */
+  flags_ignored_by_code: number;
+  placeholder_flags: number;
+  missing_signature_flags: number;
+}
+
+export interface OwnerOverview {
+  customers: number;
+  users: number;
+  drafts: number;
+  drafts_last_7_days: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  average_cost_per_draft_usd: number | null;
+  quality: QualityStats;
+}
+
 export interface RunUsage {
   id: number;
+  organization_id: number;
+  organization_name: string | null;
   lead_id: number;
   lead_run_number: number;
   created_at: string;
+  overall_score: number | null;
   approved: boolean;
+  improvement_count: number;
   human_approved: boolean;
+  review_override: boolean;
   llm_requests: number;
   input_tokens: number;
   output_tokens: number;
@@ -66,6 +102,12 @@ export function getUsage(): Promise<UsageOverview> {
   return getJson<UsageOverview>("/admin/usage");
 }
 
-export function getOrganizationRuns(organizationId: number): Promise<RunUsage[]> {
-  return getJson<RunUsage[]>(`/admin/organizations/${organizationId}/runs`);
+export function getOwnerOverview(): Promise<OwnerOverview> {
+  return getJson<OwnerOverview>("/admin/overview");
+}
+
+/** Latest runs across all customers, or for one customer. */
+export function getRecentRuns(organizationId?: number): Promise<RunUsage[]> {
+  const query = organizationId === undefined ? "" : `?organization_id=${organizationId}`;
+  return getJson<RunUsage[]>(`/admin/runs${query}`);
 }

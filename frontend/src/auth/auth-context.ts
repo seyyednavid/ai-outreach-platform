@@ -5,6 +5,8 @@ export interface AuthState {
   session: Session | null;
   /** True until the stored session has been read on page load. */
   loading: boolean;
+  /** A product owner (ADMIN_EMAILS). Null until the backend has answered. */
+  isOwner: boolean | null;
   signOut: () => Promise<void>;
 }
 
