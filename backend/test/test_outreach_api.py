@@ -20,6 +20,7 @@ from app.models.company import Company
 from app.models.company_product import CompanyProduct
 from app.models.lead import Lead
 from app.models.outreach_run import OutreachRun
+from app.services.user_service import CurrentUser
 from app.workflows.outreach_workflow import OutreachResult
 
 RUN_WORKFLOW = "app.api.routes.outreach.run_outreach"
@@ -30,6 +31,7 @@ OFFERING = "Queue management solutions for retail stores."
 
 @dataclass
 class Seed:
+    organization_id: int
     lead_id: int
     seller_id: int
     product_id: int
@@ -74,9 +76,13 @@ def make_result(*, approved: bool) -> OutreachResult:
 @pytest.fixture
 def seed(
     session_factory: sessionmaker[Session],
+    test_user: CurrentUser,
 ) -> Generator[Seed, None, None]:
+    org_id = test_user.organization_id
+
     with session_factory() as session:
         lead = Lead(
+            organization_id=org_id,
             company_name="Example Retail",
             website="https://example.com",
             industry="Retail",
@@ -84,6 +90,7 @@ def seed(
             pain_point="Possible queues at peak times",
         )
         seller = Company(
+            organization_id=org_id,
             name="Tensator",
             website=None,
             industry="Queue management",
@@ -98,6 +105,7 @@ def seed(
             cta_type="call",
         )
         other_seller = Company(
+            organization_id=org_id,
             name="Other Seller",
             website=None,
             industry="Other",
@@ -126,6 +134,7 @@ def seed(
         session.commit()
 
         data = Seed(
+            organization_id=org_id,
             lead_id=lead.id,
             seller_id=seller.id,
             product_id=product.id,
@@ -674,6 +683,7 @@ def test_recheck_run_created_before_context_was_saved(
 
     with session_factory() as session:
         old_run = OutreachRun(
+            organization_id=seed.organization_id,
             lead_id=seed.lead_id,
             research=result.research.model_dump(mode="json"),
             email=result.email.model_dump(mode="json"),
@@ -747,6 +757,7 @@ def test_runs_are_numbered_per_lead(
 
     with session_factory() as session:
         other = Lead(
+            organization_id=seed.organization_id,
             company_name="Other Retail",
             website=None,
             industry="Retail",

@@ -1,5 +1,5 @@
 
-from sqlalchemy import String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -9,6 +9,12 @@ class Company(Base):
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Every record belongs to one organisation; queries always filter by it.
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"),
+        index=True,
+    )
 
     name: Mapped[str]
     website: Mapped[str | None]

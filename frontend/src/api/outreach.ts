@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
   "http://127.0.0.1:8000/api/v1";
@@ -129,7 +130,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 export async function runOutreach(
   payload: OutreachRunPayload,
 ): Promise<OutreachRun> {
-  const response = await fetch(`${API_BASE_URL}/outreach/run`, {
+  const response = await apiFetch(`${API_BASE_URL}/outreach/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -139,12 +140,12 @@ export async function runOutreach(
 
 /** The newest drafts across all leads. */
 export async function getRecentRuns(): Promise<OutreachRun[]> {
-  const response = await fetch(`${API_BASE_URL}/outreach/runs`);
+  const response = await apiFetch(`${API_BASE_URL}/outreach/runs`);
   return parseResponse<OutreachRun[]>(response);
 }
 
 export async function getLeadRuns(leadId: number): Promise<OutreachRun[]> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/outreach/leads/${leadId}/runs`,
   );
   return parseResponse<OutreachRun[]>(response);
@@ -154,7 +155,7 @@ export async function saveEmailDraft(
   runId: number,
   email: EmailDraft,
 ): Promise<OutreachRun> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/outreach/runs/${runId}/draft`,
     {
       method: "PUT",
@@ -167,7 +168,7 @@ export async function saveEmailDraft(
 
 /** Ask the AI reviewer to check your edited version. Never changes the text. */
 export async function recheckEmailDraft(runId: number): Promise<OutreachRun> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/outreach/runs/${runId}/review`,
     { method: "POST" },
   );
@@ -178,7 +179,7 @@ export async function approveEmailDraft(
   runId: number,
   acknowledgeFailedReview = false,
 ): Promise<OutreachRun> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/outreach/runs/${runId}/approve`,
     {
       method: "POST",

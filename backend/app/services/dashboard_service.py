@@ -7,26 +7,33 @@ from app.models.outreach_run import OutreachRun
 from app.schemas.dashboard import DashboardStats
 
 
-def get_dashboard_stats(db: Session) -> DashboardStats:
+def get_dashboard_stats(db: Session, organization_id: int) -> DashboardStats:
     """Calculate dashboard statistics from PostgreSQL."""
 
     total_leads = db.scalar(
-        select(func.count(Lead.id))
+        select(func.count(Lead.id)).where(
+            Lead.organization_id == organization_id
+        )
     ) or 0
 
     total_runs = db.scalar(
-        select(func.count(OutreachRun.id))
+        select(func.count(OutreachRun.id)).where(
+            OutreachRun.organization_id == organization_id
+        )
     ) or 0
 
     human_approved = db.scalar(
         select(func.count(OutreachRun.id)).where(
-            OutreachRun.human_approved.is_(True)
+            OutreachRun.organization_id == organization_id,
+            OutreachRun.human_approved.is_(True),
         )
     ) or 0
 
     # Review scores are stored inside the JSON review column.
     review_scores = db.scalars(
-        select(OutreachRun.review)
+        select(OutreachRun.review).where(
+            OutreachRun.organization_id == organization_id
+        )
     ).all()
 
     scores = [

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, MailPlus, RefreshCw, Send } from "lucide-react";
+import { ExternalLink, Link2, MailPlus, RefreshCw, Send } from "lucide-react";
 
-import { createGmailDraft, getGmailStatus, GMAIL_CONNECT_URL } from "../api/gmail";
+import { createGmailDraft, getGmailConnectUrl, getGmailStatus } from "../api/gmail";
 import type { OutreachRun } from "../api/outreach";
 import { Badge, Button, Card, CardHeader, Field, Notice } from "./ui";
 import { getErrorMessage, inputClass } from "./ui-classes";
@@ -46,6 +46,21 @@ export default function GmailDraftPanel({ run, recipientEmail }: GmailDraftPanel
       setError(getErrorMessage(err, "Could not check the Gmail connection."));
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function handleConnect() {
+    // Open the tab now, inside the click, so pop-up blockers allow it.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    setError(null);
+    try {
+      const url = await getGmailConnectUrl();
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (err) {
+      tab?.close();
+      setError(getErrorMessage(err, "Could not start the Gmail connection."));
     }
   }
 
@@ -106,15 +121,12 @@ export default function GmailDraftPanel({ run, recipientEmail }: GmailDraftPanel
 
         {!checking && !connected && (
           <Notice tone="warn">
-            Connect Gmail in a new tab, then press Recheck.{" "}
-            <a
-              href={GMAIL_CONNECT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-semibold underline underline-offset-2"
-            >
-              Connect Gmail <ExternalLink size={13} />
-            </a>
+            Connect your Gmail in a new tab, then press Recheck.
+            <div className="mt-2">
+              <Button variant="secondary" size="sm" icon={Link2} onClick={() => void handleConnect()}>
+                Connect Gmail
+              </Button>
+            </div>
           </Notice>
         )}
 

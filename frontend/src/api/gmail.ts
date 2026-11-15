@@ -1,10 +1,9 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
   "http://127.0.0.1:8000/api/v1";
 
-export const GMAIL_CONNECT_URL =
-  `${API_BASE_URL}/gmail/connect`;
 
 export interface GmailStatus {
   connected: boolean;
@@ -38,8 +37,15 @@ async function parseResponse<T>(
   return response.json() as Promise<T>;
 }
 
+/** Google's consent page for the signed-in user. */
+export async function getGmailConnectUrl(): Promise<string> {
+  const response = await apiFetch(`${API_BASE_URL}/gmail/connect`);
+  const data = await parseResponse<{ authorization_url: string }>(response);
+  return data.authorization_url;
+}
+
 export async function getGmailStatus(): Promise<GmailStatus> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/gmail/status`,
   );
 
@@ -50,7 +56,7 @@ export async function createGmailDraft(
   runId: number,
   recipientEmail: string,
 ): Promise<GmailDraftResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/gmail/drafts`,
     {
       method: "POST",

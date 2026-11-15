@@ -12,6 +12,12 @@ class OutreachRun(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
+    # Every record belongs to one organisation; queries always filter by it.
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"),
+        index=True,
+    )
+
     lead_id: Mapped[int] = mapped_column(
         ForeignKey("leads.id"),
         index=True,

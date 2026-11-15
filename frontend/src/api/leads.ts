@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -40,14 +41,14 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getLeads(): Promise<Lead[]> {
-  const response = await fetch(`${API_BASE_URL}/leads`);
+  const response = await apiFetch(`${API_BASE_URL}/leads`);
   return parseResponse<Lead[]>(response);
 }
 
 export async function createLead(
   data: LeadCreate,
 ): Promise<Lead> {
-  const response = await fetch(`${API_BASE_URL}/leads`, {
+  const response = await apiFetch(`${API_BASE_URL}/leads`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -62,7 +63,7 @@ export async function updateLead(
   leadId: number,
   data: LeadCreate,
 ): Promise<Lead> {
-  const response = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/leads/${leadId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -73,7 +74,7 @@ export async function updateLead(
 
 /** Deletes the lead and all of its drafts. Cannot be undone. */
 export async function deleteLead(leadId: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/leads/${leadId}`, {
     method: "DELETE",
   });
 

@@ -1,3 +1,4 @@
+import { apiFetch } from "./http";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
@@ -56,14 +57,14 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getCompanies(): Promise<Company[]> {
-  const response = await fetch(`${API_BASE_URL}/companies`);
+  const response = await apiFetch(`${API_BASE_URL}/companies`);
   return parseResponse<Company[]>(response);
 }
 
 export async function createCompany(
   data: CompanyInput,
 ): Promise<Company> {
-  const response = await fetch(`${API_BASE_URL}/companies`, {
+  const response = await apiFetch(`${API_BASE_URL}/companies`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -76,7 +77,7 @@ export async function updateCompany(
   companyId: number,
   data: CompanyInput,
 ): Promise<Company> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/companies/${companyId}`,
     {
       method: "PUT",
@@ -91,7 +92,7 @@ export async function updateCompany(
 export async function getProducts(
   companyId: number,
 ): Promise<Product[]> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/companies/${companyId}/products`,
   );
 
@@ -102,7 +103,7 @@ export async function createProduct(
   companyId: number,
   data: ProductInput,
 ): Promise<Product> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/companies/${companyId}/products`,
     {
       method: "POST",
@@ -119,7 +120,7 @@ export async function updateProduct(
   productId: number,
   data: ProductInput,
 ): Promise<Product> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/companies/${companyId}/products/${productId}`,
     {
       method: "PUT",
@@ -135,7 +136,7 @@ export async function deleteProduct(
   companyId: number,
   productId: number,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/companies/${companyId}/products/${productId}`,
     { method: "DELETE" },
   );

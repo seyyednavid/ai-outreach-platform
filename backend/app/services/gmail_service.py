@@ -1,38 +1,48 @@
-
 import base64
 import json
-import os
 import secrets
 import time
+import uuid
 from email.message import EmailMessage
-from pathlib import Path
 
+from cryptography.fernet import Fernet, InvalidToken
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from sqlalchemy.orm import Session
 
 from app.agents.writer_agent import EmailDraft
 from app.core.config import settings
+from app.models.gmail_connection import GmailConnection
 
 # OAuth permission required for Gmail draft creation.
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
 ]
 
-# Store tokens outside the project directory.
-# On Windows: C:\Users\<username>\AppData\Local\ai-outreach-platform
-TOKEN_DIR = Path(
-    os.environ.get("LOCALAPPDATA", str(Path.home()))
-) / "ai-outreach-platform"
-
-TOKEN_PATH = TOKEN_DIR / "gmail_tokens.json"
-
 # Temporary OAuth requests:
-# state -> (creation_time, code_verifier)
-pending_states: dict[str, tuple[float, str]] = {}
+# state -> (creation_time, code_verifier, user who started the flow)
+# In memory, so this assumes a single backend process.
+pending_states: dict[str, tuple[float, str, uuid.UUID]] = {}
 
 STATE_LIFETIME_SECONDS = 600
+
+
+class GmailNotConfigured(Exception):
+    """TOKEN_ENCRYPTION_KEY is missing or invalid."""
+
+
+def token_cipher() -> Fernet:
+    """Encrypts Gmail tokens before they are stored in the database."""
+    if not settings.token_encryption_key:
+        raise GmailNotConfigured("TOKEN_ENCRYPTION_KEY is not set on the server")
+
+    try:
+        return Fernet(settings.token_encryption_key.encode())
+    except ValueError as exc:
+        raise GmailNotConfigured("TOKEN_ENCRYPTION_KEY is not a valid key") from exc
 
 
 def create_flow() -> Flow:
@@ -55,25 +65,28 @@ def create_flow() -> Flow:
     )
 
 
-def get_authorization_url() -> str:
-    """Generate the Google login URL with PKCE protection."""
+def get_authorization_url(user_id: uuid.UUID) -> str:
+    """Generate the Google consent URL with PKCE protection."""
+    token_cipher()  # Fail before the user goes to Google, not after.
+
     flow = create_flow()
 
     now = time.time()
 
     # Remove expired OAuth requests.
-    for state, (created_at, _) in list(pending_states.items()):
+    for state, (created_at, _, _) in list(pending_states.items()):
         if now - created_at > STATE_LIFETIME_SECONDS:
             pending_states.pop(state, None)
 
-    # State protects the OAuth callback against CSRF.
+    # State protects the OAuth callback against CSRF and tells the
+    # callback which user the Gmail account belongs to.
     state = secrets.token_urlsafe(32)
 
     # PKCE verifier must be preserved until the callback.
     code_verifier = secrets.token_urlsafe(64)
     flow.code_verifier = code_verifier
 
-    pending_states[state] = (now, code_verifier)
+    pending_states[state] = (now, code_verifier, user_id)
 
     authorization_url, _ = flow.authorization_url(
         state=state,
@@ -85,17 +98,35 @@ def get_authorization_url() -> str:
     return authorization_url
 
 
+def save_credentials(
+    db: Session,
+    user_id: uuid.UUID,
+    credentials: Credentials,
+) -> None:
+    encrypted = token_cipher().encrypt(credentials.to_json().encode()).decode()
+
+    connection = db.get(GmailConnection, user_id)
+
+    if connection is None:
+        db.add(GmailConnection(user_id=user_id, encrypted_token=encrypted))
+    else:
+        connection.encrypted_token = encrypted
+
+    db.commit()
+
+
 def exchange_authorization_code(
+    db: Session,
     code: str,
     state: str,
 ) -> None:
-    """Exchange Google's authorization code for OAuth tokens."""
+    """Exchange Google's authorization code for the user's tokens."""
     pending = pending_states.pop(state, None)
 
     if pending is None:
         raise ValueError("Invalid or expired OAuth state")
 
-    created_at, code_verifier = pending
+    created_at, code_verifier, user_id = pending
 
     if time.time() - created_at > STATE_LIFETIME_SECONDS:
         raise ValueError("Expired OAuth state")
@@ -113,24 +144,26 @@ def exchange_authorization_code(
     if not credentials.refresh_token:
         raise ValueError("Google did not return a refresh token")
 
-    # Create the directory only when saving credentials.
-    TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Save access/refresh tokens for future Gmail API calls.
-    TOKEN_PATH.write_text(
-        credentials.to_json(),
-        encoding="utf-8",
-    )
+    save_credentials(db, user_id, credentials)
 
 
-def get_credentials() -> Credentials | None:
-    """Load stored credentials and refresh an expired access token."""
-    if not TOKEN_PATH.exists():
+def get_credentials(
+    db: Session,
+    user_id: uuid.UUID,
+) -> Credentials | None:
+    """Load this user's credentials and refresh an expired access token."""
+    connection = db.get(GmailConnection, user_id)
+
+    if connection is None:
         return None
 
-    info = json.loads(
-        TOKEN_PATH.read_text(encoding="utf-8")
-    )
+    try:
+        info = json.loads(
+            token_cipher().decrypt(connection.encrypted_token.encode())
+        )
+    except InvalidToken:
+        # Encrypted with a different key: the user must connect again.
+        return None
 
     credentials = Credentials.from_authorized_user_info(
         info,
@@ -138,31 +171,33 @@ def get_credentials() -> Credentials | None:
     )
 
     if credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
+        try:
+            credentials.refresh(Request())
+        except RefreshError:
+            # Access was revoked in the Google account.
+            return None
 
-        TOKEN_PATH.write_text(
-            credentials.to_json(),
-            encoding="utf-8",
-        )
+        save_credentials(db, user_id, credentials)
 
     return credentials
 
 
-def is_gmail_connected() -> bool:
-    """Check whether valid Gmail credentials are available."""
-    credentials = get_credentials()
+def is_gmail_connected(db: Session, user_id: uuid.UUID) -> bool:
+    """Check whether this user has valid Gmail credentials."""
+    credentials = get_credentials(db, user_id)
 
     return bool(credentials and credentials.valid)
 
 
-
 def create_gmail_draft(
+    db: Session,
+    user_id: uuid.UUID,
     recipient_email: str,
     email: EmailDraft,
 ) -> dict:
-    """Create a Gmail draft without sending an email."""
+    """Create a Gmail draft in this user's account without sending it."""
 
-    credentials = get_credentials()
+    credentials = get_credentials(db, user_id)
 
     if credentials is None or not credentials.valid:
         raise ValueError("Gmail is not connected")

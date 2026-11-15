@@ -1,16 +1,14 @@
 
 import json
-from typing import Annotated
 
 from agents import Runner
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.agents.solution_matching_agent import (
     solution_matching_agent,
 )
-from app.core.database import get_db
+from app.api.deps import AuthUser, DbSession
 from app.models.company import Company
 from app.models.company_product import CompanyProduct
 from app.models.lead import Lead
@@ -19,14 +17,12 @@ from app.schemas.matching import (
     SolutionMatchResponse,
     SolutionMatchResult,
 )
+from app.services.ownership import get_owned
 
 router = APIRouter(
     prefix="/matching",
     tags=["Solution Matching"],
 )
-
-DbSession = Annotated[Session, Depends(get_db)]
-
 
 @router.post(
     "/preview",
@@ -35,8 +31,9 @@ DbSession = Annotated[Session, Depends(get_db)]
 async def preview_solution_match(
     request: SolutionMatchRequest,
     db: DbSession,
+    user: AuthUser,
 ):
-    company = db.get(Company, request.company_id)
+    company = get_owned(db, Company, user.organization_id, request.company_id)
 
     if company is None:
         raise HTTPException(
@@ -44,7 +41,7 @@ async def preview_solution_match(
             detail="Seller company not found",
         )
 
-    lead = db.get(Lead, request.lead_id)
+    lead = get_owned(db, Lead, user.organization_id, request.lead_id)
 
     if lead is None:
         raise HTTPException(
