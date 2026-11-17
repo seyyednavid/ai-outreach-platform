@@ -1,6 +1,7 @@
 
 import json
 import re
+from datetime import date
 
 from agents import Agent, Runner, RunResult, custom_span, gen_trace_id, trace
 from pydantic import BaseModel
@@ -32,10 +33,15 @@ class OutreachResult(BaseModel):
 
 
 def build_prompt(task: str, **context: object) -> str:
+    """
+    The task, then the context as JSON. Today's date is included so the
+    agents can judge words like "recently" (the reviewer flagged a
+    launch "in 2026" described as recent because it did not know the date).
+    """
     return (
         f"{task}\n\n"
         + json.dumps(
-            context,
+            {"today": date.today().isoformat(), **context},
             indent=2,
             ensure_ascii=False,
         )
@@ -260,17 +266,36 @@ def finalize_traced(email: EmailDraft, signature: str | None) -> EmailDraft:
     return final
 
 
+def without_signature(draft: EmailDraft, signature: str | None) -> EmailDraft:
+    """
+    The email as the Reviewer should judge it. The signature is added
+    by code from My Company, so it is not a claim to check; when it was
+    left in, the Reviewer sometimes flagged the sender's own job title.
+    """
+    if not signature:
+        return draft
+
+    body = draft.body.rstrip()
+    block = signature.strip()
+    if not body.endswith(block):
+        return draft  # changed by a human: review it like the rest
+
+    return draft.model_copy(update={"body": body[: -len(block)].rstrip()})
+
+
 async def review_email(
     draft: EmailDraft,
     research: ResearchReport,
     sender_offering: str,
     context: dict[str, object],
     usage: UsageTotals | None = None,
+    signature: str | None = None,
 ) -> EmailReview:
     """
     Run the Reviewer once. Used inside the workflow and again
     when a human asks for their edited draft to be checked.
     """
+    draft = without_signature(draft, signature)
     result = await run_agent(
         reviewer_agent,
         build_prompt(
@@ -378,7 +403,7 @@ async def _run_outreach_steps(
     email: EmailDraft = finalize_traced(write_result.final_output, signature)
 
     # Step 3: Review the generated email.
-    review = await review_email(email, research, sender_offering, context, usage)
+    review = await review_email(email, research, sender_offering, context, usage, signature)
 
     improvement_count = 0
 
@@ -406,7 +431,7 @@ async def _run_outreach_steps(
         improvement_count += 1
 
         # Re-review every improved draft.
-        review = await review_email(email, research, sender_offering, context, usage)
+        review = await review_email(email, research, sender_offering, context, usage, signature)
 
     # Step 5: Final AI decision.
     return OutreachResult(

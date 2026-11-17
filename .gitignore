@@ -25,3 +25,6 @@ Extra/
 
 # Output of scripts/simulate_customers.py
 simulation_results*.json
+
+# Output of scripts/evaluate_reviewer.py
+reviewer_eval_results*.json

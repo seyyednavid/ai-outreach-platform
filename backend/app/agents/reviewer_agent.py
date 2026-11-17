@@ -1,5 +1,5 @@
 
-from agents import Agent
+from agents import Agent, ModelSettings
 from pydantic import BaseModel, Field
 
 
@@ -68,6 +68,32 @@ reviewer_agent = Agent(
     Do not lower scores because of unsupported claims;
     list those in flagged_claims instead.
 
+    Method: read the email sentence by sentence (subject, body
+    and call to action). For every sentence that states a fact,
+    name the evidence that supports it:
+    - About the seller or its product (customers, results,
+      statistics, awards, certifications, installation time,
+      features, and any named system, platform, partner or
+      customer it works with): the seller's description and
+      differentiators in outreach_context.seller_company, or
+      "approved_product_facts". A system or partner the evidence
+      does not name is unsupported.
+    - About the target company: the research verified_findings.
+    - About the recipient: nothing supports it. Never accept a
+      statement of their job title, or of a past meeting.
+    A claim is supported only when the evidence says the same
+    thing with the same strength. Stronger wording is unsupported,
+    for example "fully automated" when the evidence says "helps
+    staff", "within hours" when it says "within days", or
+    "guarantees fewer complaints" when nothing measures it.
+    Flag every factual sentence that has no such evidence, even
+    when it sounds plausible. Hedged or conditional sentences
+    ("could help", "may", "if your counters get busy") state no
+    fact about the target and must not be flagged for implying a
+    need; check only the facts they contain.
+    Words like "recently" are fine when the evidence's date is
+    within about a year of "today" in the input.
+
     Flag claims:
     - Only flag text that is actually written in the email
       (subject, body or call to action).
@@ -105,4 +131,6 @@ reviewer_agent = Agent(
     Return structured output.
     """,
     output_type=ReviewerOutput,
+    # The same email should always get the same verdict.
+    model_settings=ModelSettings(temperature=0),
 )
