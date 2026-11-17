@@ -1,0 +1,18 @@
+# Keep secrets and local files out of the image.
+.env
+.env.*
+!.env.example
+.venv/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+test/
+scripts/
+evals/
+*.json
+!pyproject.toml
+run_*.py
+main.py
+README.md
+Dockerfile
+.dockerignore
