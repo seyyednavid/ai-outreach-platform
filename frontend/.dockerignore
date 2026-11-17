@@ -1,0 +1,9 @@
+# frontend/.env is allowed in: it only holds public VITE_ values that
+# Vite builds into the browser code. Local overrides stay out.
+.env.local
+.env.*.local
+node_modules/
+dist/
+.pytest_cache/
+Dockerfile
+.dockerignore

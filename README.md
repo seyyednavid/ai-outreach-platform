@@ -91,13 +91,36 @@ The SDK's built-in tracing needs no extra infrastructure. Because the SDK suppor
 
 *Names and contact details in the screenshots are anonymised.*
 
-## Run it locally
+## Run with Docker (one command)
+
+**You need:** Docker Desktop, an OpenAI API key and a free [Supabase](https://supabase.com) project (used only for login).
+
+```bash
+cp backend/.env.example backend/.env       # then fill in the values
+cp frontend/.env.example frontend/.env     # Supabase URL and publishable key
+docker compose up --build                  # first build takes a few minutes
+```
+
+Open **http://localhost:8080**. The API is on http://127.0.0.1:8000/docs. Stop with `docker compose down`; the data stays in a Docker volume.
+
+| Service | Image | What it does |
+|---|---|---|
+| `db` | `postgres:17` | The database |
+| `migrate` | backend image | Runs `alembic upgrade head` once, then stops |
+| `backend` | `backend/Dockerfile` (Python 3.12, uv, non-root user) | FastAPI, agents; healthy once `/api/v1/health/ready` answers |
+| `frontend` | `frontend/Dockerfile` (built with Node, served by nginx) | The website |
+
+They start in order: database healthy → migrations finished → backend healthy → frontend. Secrets are read from `backend/.env` when the containers start and are never copied into an image. `frontend/.env` holds only public values, which Vite builds into the browser code.
+
+In Supabase, add `http://localhost:8080/**` to the redirect URLs so that sign-up confirmation links open the Docker frontend.
+
+## Run it locally (for development)
 
 **You need:** Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker Desktop, an OpenAI API key and a free [Supabase](https://supabase.com) project (used only for login).
 
 ```bash
-# 1. Database (PostgreSQL 17 on 127.0.0.1:5433)
-docker compose up -d
+# 1. Database only (PostgreSQL 17 on 127.0.0.1:5433)
+docker compose up -d db
 
 # 2. Backend: http://127.0.0.1:8000/docs
 cd backend
@@ -210,7 +233,7 @@ docs/screenshots/
 - `backend/.env` and `frontend/.env` are git-ignored. Only `.env.example` files with placeholders are committed.
 - Login is handled by Supabase Auth. The backend never sees passwords. It checks each request's token: signature, expiry, audience and issuer.
 - Gmail OAuth tokens are stored per user in PostgreSQL, encrypted with `TOKEN_ENCRYPTION_KEY`.
-- The database password in `compose.yaml` is for local development only. The port is bound to `127.0.0.1`.
+- The database password in `compose.yaml` is for local development only. All ports are bound to `127.0.0.1`, so nothing is reachable from other computers.
 - CORS allows `localhost` for development and only the addresses listed in `CORS_ORIGINS` once deployed.
 
 ## Limitations and next steps

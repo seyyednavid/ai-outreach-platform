@@ -1,3 +1,7 @@
+# The whole app:      docker compose up --build      -> http://localhost:8080
+# Database only (for npm run dev / uvicorn --reload):  docker compose up -d db
+#
+# Start order: db (healthy) -> migrate (finished) -> backend (healthy) -> frontend
 
 services:
   db:
@@ -17,6 +21,58 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # A short task, not a server: brings the tables up to date, then stops.
+  # Same image as the backend, different command.
+  migrate:
+    build: ./backend
+    image: ai-outreach-backend
+    command: ["alembic", "upgrade", "head"]
+    env_file: ./backend/.env
+    environment:
+      # Inside Docker the database is the "db" service on its normal port.
+      DATABASE_URL: postgresql+psycopg://outreach:local_dev_password@db:5432/outreach_db
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    image: ai-outreach-backend
+    env_file: ./backend/.env          # your keys, read at start, never baked into the image
+    environment:
+      DATABASE_URL: postgresql+psycopg://outreach:local_dev_password@db:5432/outreach_db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Prefer IPv6 for outgoing calls (see the file for why).
+      - ./backend/docker/gai.conf:/etc/gai.conf:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # The readiness check also tests the database.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    image: ai-outreach-frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+# IPv6 on, so the backend can reach Google when IPv4 is unreliable.
+networks:
+  default:
+    enable_ipv6: true
 
 volumes:
   postgres_data:
