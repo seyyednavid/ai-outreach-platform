@@ -442,6 +442,7 @@ async def recheck_draft(
             sender_offering=snapshot.sender_offering,
             context=build_agent_context(lead, snapshot),
             usage=usage,
+            signature=build_signature(snapshot.seller_company),
         )
 
     run.final_review = review.model_dump(mode="json")

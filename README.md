@@ -113,6 +113,8 @@ On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
 **First use:** create an account and confirm your email, then add your company, a product and your signature in **My Company**, add a lead in **Leads**, then open **New draft**.
 
+**Health checks:** `GET /api/v1/health` reports that the server is running. `GET /api/v1/health/ready` also checks the database and returns 503 when it is unreachable.
+
 ## Simulating customers
 
 `backend/scripts/simulate_customers.py` creates demo customers, each with its own seller company, products, signature and leads. Ten of the leads are real public companies and two are fictional. The script then drives the same route functions the browser uses, with the **real agents**: product matching, contact discovery, draft generation, a human edit that adds an unsupported claim, the AI check of that edit, and approval. The results appear in the Owner Console and in the traces.
@@ -126,6 +128,39 @@ uv run python -m scripts.simulate_customers --cleanup                  # delete 
 
 Demo customers are named `[Demo] …` and cannot sign in. A full run costs well under $1 in model tokens, plus web search fees.
 
+## Evaluating the Reviewer
+
+The Reviewer decides whether a draft passes, so its judgement is measured, not assumed. `backend/evals/reviewer_cases.py` holds **30 fixed cases with known answers**, set at a fictional pharmacy chain so the model can only use the evidence it is given:
+
+- 16 emails with one planted problem: an invented statistic, customers, award or certification; the recipient's job title; a past meeting that never happened; a wrong number; a feature or integration not in the catalogue; stronger wording than the evidence; a placeholder.
+- 14 emails whose extra sentence the evidence supports: rounded numbers, catalogue features, research facts and hedged benefits.
+
+The script runs the real Reviewer and the real code checks on every case, three times:
+
+```bash
+cd backend
+uv run python -m scripts.evaluate_reviewer                     # about 35 s, about $0.10
+uv run python -m scripts.evaluate_reviewer --model gpt-4.1     # compare another model
+uv run python -m scripts.evaluate_reviewer --min-catch 0.75 --max-false-alarm 0.1   # fails below the bar
+```
+
+| Reviewer | Problems caught | False alarms | Same result in all 3 runs |
+|---|---|---|---|
+| Before (gpt-4.1-mini) | 60% | 0% | 23 / 30 |
+| **After** (gpt-4.1-mini) | **81%** | **0%** | **30 / 30** |
+| gpt-4.1, same prompt | 94% | 52% | 29 / 30 |
+
+What changed:
+
+- The Reviewer checks sentence by sentence, and wording stronger than the evidence counts as unsupported.
+- It runs at temperature 0.
+- It no longer sees the code-added signature. The evaluation found it flagging the sender's own job title.
+- All agents now receive today's date, so a launch "in 2026" can be called recent.
+
+The prompt's examples are deliberately different from the test cases, so the score measures generalisation rather than memorised answers.
+
+The larger model caught more problems but rejected half of the correct emails, so gpt-4.1-mini stays. The remaining misses are subtle overstatements: "integrates seamlessly" for "works alongside", "in a single day" for "under a week", and a named EPOS integration. A person still reviews every email.
+
 ## Tests
 
 Agent and Gmail calls are mocked, so the tests cost nothing and need no API keys.
@@ -135,7 +170,7 @@ docker exec ai-outreach-db createdb -U outreach outreach_test_db   # once
 
 cd backend
 uv run ruff check .
-uv run python -m pytest            # 140 tests
+uv run python -m pytest            # 146 tests
 
 cd ../frontend
 npm run lint
@@ -152,7 +187,8 @@ backend/
   app/workflows/    the outreach pipeline and its code checks
   app/services/     database logic, source checks, Gmail
   app/api/routes/   FastAPI endpoints
-  scripts/          demo customer simulation with the real agents
+  scripts/          customer simulation and the Reviewer evaluation
+  evals/            fixed evaluation cases with known answers
   alembic/          database migrations
   test/             pytest suite
 frontend/src/
@@ -167,6 +203,7 @@ docs/screenshots/
 - Login is handled by Supabase Auth. The backend never sees passwords. It checks each request's token: signature, expiry, audience and issuer.
 - Gmail OAuth tokens are stored per user in PostgreSQL, encrypted with `TOKEN_ENCRYPTION_KEY`.
 - The database password in `compose.yaml` is for local development only. The port is bound to `127.0.0.1`.
+- CORS allows `localhost` for development and only the addresses listed in `CORS_ORIGINS` once deployed.
 
 ## Limitations and next steps
 
