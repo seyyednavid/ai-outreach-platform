@@ -70,6 +70,14 @@ Product owners (accounts listed in `ADMIN_EMAILS`) start in a separate **Owner C
 - **Runs:** the latest runs of every customer, each linked to its trace.
 
 The console shows usage, never email content. For everyone else, the owner routes return 404.
+
+![Owner Console overview: customers, drafts, model cost, AI quality and guardrail statistics](docs/screenshots/owner-overview.png)
+
+| Customers | Runs |
+|---|---|
+| ![Usage and estimated cost per customer](docs/screenshots/owner-customers.png) | ![Latest runs across customers with score, approval status, cost and trace links](docs/screenshots/owner-runs.png) |
+
+*The `[Demo]` customers were created by the simulation script (below). Email addresses are anonymised.*
 - `TRACE_INCLUDE_SENSITIVE_DATA=false` keeps email text and names out of traces.
 - Tests disable tracing, so they never send data to OpenAI.
 
