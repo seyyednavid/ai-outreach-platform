@@ -1,5 +1,7 @@
 # AI Outreach Platform
 
+[![CI](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/ci.yml)
+
 A human-in-the-loop B2B outreach assistant built with the **OpenAI Agents SDK**.
 AI agents research a target company, write a personalised email and check it against the evidence.
 A person then edits and approves the email, and the app saves it as a **Gmail draft**. Nothing is ever sent automatically.
@@ -210,6 +212,19 @@ npm run build
 
 The tests cover the agent workflow and the reviewer guardrails. They also include API integration tests for context building, product ownership, approval rules, run numbering, and lead editing and deletion. Other tests check that Gmail drafts require human approval and that forged, expired or wrong-project login tokens are rejected. They also check that one account can never read, change or approve another account's records, or run agents on them.
 
+## Continuous integration
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
+
+| Job | What it checks |
+|---|---|
+| Backend | `ruff check`, migrations on an empty PostgreSQL 17, the 146 tests |
+| Frontend | `eslint`, type check and production build |
+| Docker | both images build (only after the two jobs above pass) |
+
+CI uses placeholder keys only: the tests never call OpenAI, Google or Supabase.
+The Reviewer evaluation calls OpenAI, so it has its own workflow ([`reviewer-eval.yml`](.github/workflows/reviewer-eval.yml)) that is started by hand from the Actions tab. It fails below 75% caught or above 10% false alarms, and needs the repository secret `OPENAI_API_KEY`.
+
 ## Project structure
 
 ```
@@ -221,11 +236,13 @@ backend/
   scripts/          customer simulation and the Reviewer evaluation
   evals/            fixed evaluation cases with known answers
   alembic/          database migrations
+  docker/           container-only settings
   test/             pytest suite
 frontend/src/
   pages/            Dashboard, My Company, Leads, New draft, Drafts, Owner Console
   components/       shared UI and review components
 docs/screenshots/
+.github/workflows/  CI and the Reviewer evaluation
 ```
 
 ## Security
@@ -244,4 +261,4 @@ Every account uses the server's OpenAI key, so before deploying, turn off public
 Contact discovery is best-effort, and every contact must be reviewed by a person.
 Before any commercial use, finding contacts and sending cold emails must comply with UK GDPR and PECR.
 
-**Next:** GitHub Actions CI · Docker images · Terraform deployment · background jobs · per-account usage limits · Langfuse or OpenTelemetry export · an evaluation set for draft quality.
+**Next:** Terraform deployment · background jobs · per-account usage limits · Langfuse or OpenTelemetry export · an evaluation set for draft quality.

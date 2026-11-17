@@ -1,0 +1,60 @@
+# The Reviewer evaluation (30 cases x 3 runs, about $0.10).
+# It calls OpenAI, so it is not run on every push: start it by hand from
+# the Actions tab ("Run workflow"). It fails if the Reviewer catches too
+# few problems or raises too many false alarms.
+# Needs the repository secret OPENAI_API_KEY.
+name: Reviewer evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model to test (empty = the app's model)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Placeholders: the evaluation does not use the database or Gmail.
+      DATABASE_URL: postgresql+psycopg://unused:unused@127.0.0.1:5432/unused
+      GOOGLE_CLIENT_ID: ci
+      GOOGLE_CLIENT_SECRET: ci
+      GOOGLE_REDIRECT_URI: http://127.0.0.1:8000/api/v1/gmail/callback
+      # Traces keep timing and structure, not the test emails.
+      TRACE_INCLUDE_SENSITIVE_DATA: "false"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.30"
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Evaluate the Reviewer
+        env:
+          MODEL: ${{ inputs.model }}
+        run: |
+          uv run python -m scripts.evaluate_reviewer \
+            --min-catch 0.75 --max-false-alarm 0.1 \
+            ${MODEL:+--model "$MODEL"}
+
+      - name: Keep the detailed results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-eval-results
+          path: backend/reviewer_eval_results.json
+          if-no-files-found: ignore
