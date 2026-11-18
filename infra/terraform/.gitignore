@@ -1,0 +1,25 @@
+# Provider plugins downloaded by "terraform init" (large, per machine).
+.terraform/
+
+# State: the record of real cloud resources. It can contain secrets,
+# so it is never committed.
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Your own values. Only the .example file is committed.
+terraform.tfvars
+*.auto.tfvars
+
+# Local-only overrides and CLI settings.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Keep .terraform.lock.hcl: it pins the exact provider version,
+# like uv.lock and package-lock.json.

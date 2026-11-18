@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (git-ignored) and adjust if needed:
+#   cp terraform.tfvars.example terraform.tfvars
+# Never put secrets (API keys, passwords) in .tfvars files.
+
+project_id = "ai-outreach-platform-demo"
+region     = "europe-west2"
