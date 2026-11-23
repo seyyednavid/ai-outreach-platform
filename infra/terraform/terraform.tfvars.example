@@ -16,3 +16,7 @@ project_number = "123456789012"
 google_client_id = "1234567890-abc.apps.googleusercontent.com"
 supabase_url     = "https://your-project-ref.supabase.co"
 admin_emails     = "you@example.com"
+
+# Frontend image to deploy: the tag pushed to Artifact Registry.
+# Replace after building (git rev-parse --short=12 HEAD at build time).
+frontend_image_tag = "not-built-yet"

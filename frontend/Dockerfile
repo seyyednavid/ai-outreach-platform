@@ -15,6 +15,15 @@ RUN npm ci
 # (API address, Supabase URL, publishable key): they end up in the
 # browser's JavaScript anyway. Never put a secret in frontend/.env.
 COPY . .
+
+# Production builds pass the same public values as build arguments:
+#   docker build --build-arg VITE_API_BASE_URL=https://... ./frontend
+# Build arguments become environment variables for "npm run build", and
+# Vite prefers those over frontend/.env. Not passed (docker compose, CI):
+# nothing is set, so frontend/.env is used exactly as before.
+ARG VITE_API_BASE_URL
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
 RUN npm run build
 
 # ---- 2. serve ---------------------------------------------------------

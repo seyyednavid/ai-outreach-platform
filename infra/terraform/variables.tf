@@ -42,3 +42,9 @@ variable "admin_emails" {
   type        = string
   default     = ""
 }
+
+variable "frontend_image_tag" {
+  description = "Tag of the frontend image in Artifact Registry (the Git commit it was built from)."
+  type        = string
+  # No default: every deployment names the exact image it uses.
+}
