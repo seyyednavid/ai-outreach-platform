@@ -4,3 +4,7 @@
 
 project_id = "ai-outreach-platform-demo"
 region     = "europe-west2"
+
+# Backend image to deploy: the tag pushed to Artifact Registry
+# (git rev-parse --short=12 HEAD at build time).
+backend_image_tag = "13f88479cfae"

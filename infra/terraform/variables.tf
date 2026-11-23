@@ -13,3 +13,9 @@ variable "region" {
   type        = string
   default     = "europe-west2"
 }
+
+variable "backend_image_tag" {
+  description = "Tag of the backend image in Artifact Registry (the Git commit it was built from)."
+  type        = string
+  # No default: every deployment names the exact image it uses.
+}

@@ -15,7 +15,11 @@ resource "google_artifact_registry_repository" "docker" {
   depends_on = [google_project_service.enabled["artifactregistry.googleapis.com"]]
 }
 
+locals {
+  registry_url = "${google_artifact_registry_repository.docker.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker.repository_id}"
+}
+
 output "artifact_registry_url" {
   description = "Prefix for image names pushed to this repository."
-  value       = "${google_artifact_registry_repository.docker.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker.repository_id}"
+  value       = local.registry_url
 }
