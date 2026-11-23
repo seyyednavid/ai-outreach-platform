@@ -8,3 +8,11 @@ region     = "europe-west2"
 # Backend image to deploy: the tag pushed to Artifact Registry
 # (git rev-parse --short=12 HEAD at build time).
 backend_image_tag = "13f88479cfae"
+
+# gcloud projects describe ai-outreach-platform-demo --format="value(projectNumber)"
+project_number = "123456789012"
+
+# Backend settings that are not secret (secrets live in Secret Manager).
+google_client_id = "1234567890-abc.apps.googleusercontent.com"
+supabase_url     = "https://your-project-ref.supabase.co"
+admin_emails     = "you@example.com"
