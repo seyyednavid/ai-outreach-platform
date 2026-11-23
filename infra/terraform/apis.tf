@@ -10,6 +10,7 @@ locals {
     "run.googleapis.com",              # Cloud Run: runs the backend container
     "artifactregistry.googleapis.com", # Artifact Registry: stores Docker images
     "secretmanager.googleapis.com",    # Secret Manager: holds API keys and passwords
+    "iam.googleapis.com",              # IAM: needed to create service accounts
   ]
 }
 
