@@ -15,8 +15,16 @@
 
 locals {
   github_environment = "production"
-  # GitHub's OIDC "sub" claim for a job that uses that environment.
-  github_subject = "repo:${var.github_repository}:environment:${local.github_environment}"
+
+  # GitHub's OIDC "sub" claim for a job that uses that environment. This
+  # repository uses GitHub's immutable subject format, which adds the
+  # numeric IDs to the names:
+  #   repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:production
+  # Check with: gh api repos/OWNER/REPO/actions/oidc/customization/sub
+  # (sub_claim_prefix). The IAM binding must match it exactly.
+  github_owner_name = split("/", var.github_repository)[0]
+  github_repo_name  = split("/", var.github_repository)[1]
+  github_subject    = "repo:${local.github_owner_name}@${var.github_owner_id}/${local.github_repo_name}@${var.github_repository_id}:environment:${local.github_environment}"
 }
 
 resource "google_iam_workload_identity_pool" "github" {
