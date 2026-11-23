@@ -20,3 +20,8 @@ admin_emails     = "you@example.com"
 # Frontend image to deploy: the tag pushed to Artifact Registry.
 # Replace after building (git rev-parse --short=12 HEAD at build time).
 frontend_image_tag = "not-built-yet"
+
+# GitHub repository allowed to deploy (gh api repos/OWNER/REPO --jq ".id, .owner.id").
+github_repository    = "your-account/ai-outreach-platform"
+github_repository_id = "123456789"
+github_owner_id      = "12345678"

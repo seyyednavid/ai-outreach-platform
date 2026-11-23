@@ -126,6 +126,18 @@ resource "google_cloud_run_v2_service" "backend" {
     }
   }
 
+  # After the first deployment, GitHub Actions owns the image (deploy.yml).
+  # Terraform keeps managing everything else, but never resets the image
+  # to backend_image_tag, which would roll back the running code.
+  # client/client_version record which tool deployed last (gcloud).
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
+
   depends_on = [
     google_project_service.enabled["run.googleapis.com"],
     # The service account must be able to read every secret before the

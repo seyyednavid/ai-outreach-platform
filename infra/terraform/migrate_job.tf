@@ -79,6 +79,16 @@ resource "google_cloud_run_v2_job" "migrate" {
     }
   }
 
+  # GitHub Actions points the Job at each newly deployed backend image
+  # (without running it), so Terraform must not reset the image.
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
+
   # The Job's identity must be able to read the secret before it exists.
   depends_on = [
     google_project_service.enabled["run.googleapis.com"],

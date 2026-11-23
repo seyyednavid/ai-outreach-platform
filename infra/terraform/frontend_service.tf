@@ -44,6 +44,16 @@ resource "google_cloud_run_v2_service" "frontend" {
     }
   }
 
+  # After the first deployment, GitHub Actions owns the image (deploy.yml).
+  # Terraform never resets it to frontend_image_tag (no accidental rollback).
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+      client,
+      client_version,
+    ]
+  }
+
   depends_on = [google_project_service.enabled["run.googleapis.com"]]
 }
 
