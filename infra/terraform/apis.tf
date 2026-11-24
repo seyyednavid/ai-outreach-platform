@@ -13,6 +13,7 @@ locals {
     "iam.googleapis.com",              # IAM: needed to create service accounts
     "sts.googleapis.com",              # Security Token Service: swaps GitHub's token for a Google one
     "iamcredentials.googleapis.com",   # IAM Credentials: short-lived tokens for the deployer account
+    "monitoring.googleapis.com",       # Cloud Monitoring: uptime check and alerts (on by default)
   ]
 }
 

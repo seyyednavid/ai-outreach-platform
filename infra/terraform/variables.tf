@@ -67,3 +67,8 @@ variable "github_owner_id" {
   description = "Numeric ID of the repository's owner (user or organisation)."
   type        = string
 }
+
+variable "alert_email" {
+  description = "Email address that receives monitoring alerts (monitoring.tf)."
+  type        = string
+}

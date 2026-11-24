@@ -25,3 +25,6 @@ frontend_image_tag = "not-built-yet"
 github_repository    = "your-account/ai-outreach-platform"
 github_repository_id = "123456789"
 github_owner_id      = "12345678"
+
+# Monitoring alerts are sent here (monitoring.tf).
+alert_email = "you@example.com"

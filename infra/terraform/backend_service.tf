@@ -34,6 +34,11 @@ locals {
     # Google's front end can reach the container, so trust it: redirects
     # then keep https instead of switching to http.
     FORWARDED_ALLOW_IPS = "*"
+
+    # Uvicorn reads UVICORN_* variables for its command-line options. Its
+    # access log only repeats Cloud Run's own request log (which already
+    # has status, latency and URL), so it is switched off.
+    UVICORN_ACCESS_LOG = "false"
   }
 
   # Secrets: environment variable -> Secret Manager secret. Cloud Run reads
