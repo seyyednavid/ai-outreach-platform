@@ -5,14 +5,13 @@ from collections.abc import Callable, Generator
 import pytest
 from agents import set_tracing_disabled
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 # Register SQLAlchemy models
 import app.models
 from app.api.deps import get_current_user
-from app.core.database import Base, get_db
+from app.core.database import Base, create_database_engine, get_db
 from app.main import app
 from app.models.organization import Organization
 from app.models.user import User
@@ -37,11 +36,8 @@ if database_name != "outreach_test_db":
     raise RuntimeError("Tests must use outreach_test_db!")
 
 
-test_engine = create_engine(
-    TEST_DATABASE_URL,
-    pool_pre_ping=True,
-    connect_args={"connect_timeout": 5},
-)
+# Same settings as the app's engine (e.g. hidden query parameters).
+test_engine = create_database_engine(TEST_DATABASE_URL)
 
 TestSessionLocal = sessionmaker(
     bind=test_engine,
@@ -64,6 +60,12 @@ def setup_test_database():
 
     Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
+
+
+@pytest.fixture
+def db_engine(setup_test_database):
+    """The test database engine (built like the app's engine)."""
+    return test_engine
 
 
 @pytest.fixture

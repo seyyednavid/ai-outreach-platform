@@ -1,3 +1,5 @@
+import logging
+import re
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,10 +11,33 @@ from app.agents.writer_agent import EmailDraft
 from app.api.deps import AuthUser, DbSession
 from app.models.outreach_run import OutreachRun
 from app.services import gmail_service
-from app.services.gmail_service import GmailNotConfigured
+from app.services.gmail_service import (
+    GmailNotConfigured,
+    GmailNotConnected,
+    GoogleUnavailable,
+)
 from app.services.ownership import get_owned
 
+# Never log the OAuth code or state, tokens, recipients or email text.
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/gmail", tags=["Gmail"])
+
+
+def safe_code(value: str) -> str:
+    """An error code from a URL, reduced to letters, digits and _ (log-safe)."""
+    return re.sub(r"[^A-Za-z0-9_]", "", value)[:64] or "unknown"
+
+
+def gmail_error_reasons(exc: HttpError) -> str:
+    """Google's machine-readable reasons, e.g. "insufficientPermissions"."""
+    details = exc.error_details if isinstance(exc.error_details, list) else []
+    reasons = [
+        safe_code(str(item["reason"]))
+        for item in details
+        if isinstance(item, dict) and item.get("reason")
+    ]
+    return ",".join(reasons) or "none"
 
 
 def result_page(title: str, message: str, status_code: int = 200) -> HTMLResponse:
@@ -43,6 +68,7 @@ def connect_gmail(user: AuthUser):
     try:
         url = gmail_service.get_authorization_url(user.id)
     except GmailNotConfigured as exc:
+        logger.error("Gmail connect is unavailable: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return GmailConnectResponse(authorization_url=url)
@@ -51,14 +77,39 @@ def connect_gmail(user: AuthUser):
 @router.get("/callback", response_class=HTMLResponse)
 def gmail_callback(
     db: DbSession,
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
 ):
     # No login token here: Google redirects the browser. The one-time
     # state value identifies the user who started the connection.
+
+    # The user pressed Cancel, or Google refused: no code is sent.
+    if error:
+        logger.warning("Gmail connection failed: Google returned error=%s", safe_code(error))
+        return result_page(
+            "Gmail was not connected",
+            "Google did not grant access. You can close this tab and try again.",
+            status_code=400,
+        )
+
+    if not code or not state:
+        logger.warning("Gmail connection failed: callback without code or state")
+        return result_page(
+            "Gmail was not connected",
+            "The link from Google was incomplete. Try connecting Gmail again.",
+            status_code=400,
+        )
+
     try:
         gmail_service.exchange_authorization_code(db=db, code=code, state=state)
-    except (ValueError, GmailNotConfigured) as exc:
+    except GoogleUnavailable as exc:
+        return result_page("Gmail was not connected", str(exc), status_code=502)
+    except GmailNotConfigured as exc:
+        logger.error("Gmail connection failed: %s", exc)
+        return result_page("Gmail was not connected", str(exc), status_code=400)
+    except ValueError as exc:
+        # Already logged with its reason by gmail_service.
         return result_page("Gmail was not connected", str(exc), status_code=400)
 
     return result_page(
@@ -120,11 +171,24 @@ def create_draft(
             email=email,
         )
     except (ValueError, GmailNotConfigured) as exc:
+        # Our own messages are safe to log; anything else only by type.
+        reason = (
+            str(exc)
+            if isinstance(exc, (GmailNotConnected, GmailNotConfigured))
+            else type(exc).__name__
+        )
+        logger.warning("Gmail draft not created for run %s: %s", run.id, reason)
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         ) from exc
     except HttpError as exc:
+        logger.warning(
+            "Gmail API refused the draft for run %s: HTTP %s, reasons=%s",
+            run.id,
+            exc.resp.status,
+            gmail_error_reasons(exc),
+        )
         raise HTTPException(
             status_code=502,
             detail="Gmail API could not create the draft",

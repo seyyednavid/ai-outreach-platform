@@ -5,17 +5,25 @@ Model calls and Gmail are mocked: these tests check request validation,
 database-backed context building, persistence and the approval gates.
 """
 
+import json
+import logging
 from collections.abc import Generator
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, patch
 
+import httplib2
+import httpx
+import openai
 import pytest
+from agents.exceptions import ModelBehaviorError
 from fastapi.testclient import TestClient
+from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.agents.research_agent import ResearchReport
 from app.agents.reviewer_agent import EmailReview, FlaggedClaim, ReviewerOutput
 from app.agents.writer_agent import EmailDraft
+from app.main import AI_FAILED_DETAIL
 from app.models.company import Company
 from app.models.company_product import CompanyProduct
 from app.models.lead import Lead
@@ -518,6 +526,117 @@ def test_gmail_draft_uses_human_edited_email(
     sent_email = create_draft.call_args.kwargs["email"]
     assert sent_email.subject == "Edited subject line"
     assert create_draft.call_args.kwargs["recipient_email"] == "me@example.com"
+
+
+def test_gmail_api_error_is_logged_without_email_content(
+    db_client: TestClient,
+    seed: Seed,
+    caplog: pytest.LogCaptureFixture,
+):
+    run = create_run(db_client, seed, approved=True)
+    db_client.post(f"/api/v1/outreach/runs/{run['id']}/approve")
+    refused = HttpError(
+        resp=httplib2.Response({"status": 403}),
+        content=json.dumps(
+            {
+                "error": {
+                    "code": 403,
+                    "message": "Insufficient Permission",
+                    "errors": [{"reason": "insufficientPermissions"}],
+                }
+            }
+        ).encode(),
+    )
+
+    with patch(CREATE_GMAIL_DRAFT, side_effect=refused), caplog.at_level(logging.WARNING):
+        response = db_client.post(
+            "/api/v1/gmail/drafts",
+            json={"run_id": run["id"], "recipient_email": "jane.doe@example.com"},
+        )
+
+    # Response unchanged; the log now says why.
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Gmail API could not create the draft"}
+    assert f"run {run['id']}: HTTP 403, reasons=insufficientPermissions" in caplog.text
+    assert "jane.doe@example.com" not in caplog.text
+    assert "Call Forward System" not in caplog.text  # email body
+
+
+def test_gmail_not_connected_is_logged(
+    db_client: TestClient,
+    seed: Seed,
+    caplog: pytest.LogCaptureFixture,
+):
+    from app.services.gmail_service import GmailNotConnected
+
+    run = create_run(db_client, seed, approved=True)
+    db_client.post(f"/api/v1/outreach/runs/{run['id']}/approve")
+
+    with (
+        patch(CREATE_GMAIL_DRAFT, side_effect=GmailNotConnected("Gmail is not connected")),
+        caplog.at_level(logging.WARNING),
+    ):
+        response = db_client.post(
+            "/api/v1/gmail/drafts",
+            json={"run_id": run["id"], "recipient_email": "jane.doe@example.com"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Gmail is not connected"}
+    assert f"run {run['id']}: Gmail is not connected" in caplog.text
+
+
+# --------------------------------------------------
+# AI failures: a readable 502, and no model output in the logs
+# --------------------------------------------------
+
+
+def test_agent_failure_returns_502_without_logging_model_output(
+    db_client: TestClient,
+    seed: Seed,
+    caplog: pytest.LogCaptureFixture,
+):
+    model_output = "Dear Jane, confidential draft about Example Retail"
+
+    with (
+        patch(
+            RUN_WORKFLOW,
+            new_callable=AsyncMock,
+            side_effect=ModelBehaviorError(f"Invalid JSON: {model_output}"),
+        ),
+        caplog.at_level(logging.ERROR),
+    ):
+        response = db_client.post("/api/v1/outreach/run", json=run_payload(seed))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": AI_FAILED_DETAIL}
+    assert "AI request failed: POST /api/v1/outreach/run: ModelBehaviorError" in caplog.text
+    assert model_output not in caplog.text
+
+
+def test_openai_error_is_logged_with_status_and_request_id(
+    db_client: TestClient,
+    seed: Seed,
+    caplog: pytest.LogCaptureFixture,
+):
+    rate_limited = openai.RateLimitError(
+        "Rate limit reached",
+        response=httpx.Response(
+            429,
+            request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+            headers={"x-request-id": "req_abc"},
+        ),
+        body=None,
+    )
+
+    with (
+        patch(RUN_WORKFLOW, new_callable=AsyncMock, side_effect=rate_limited),
+        caplog.at_level(logging.ERROR),
+    ):
+        response = db_client.post("/api/v1/outreach/run", json=run_payload(seed))
+
+    assert response.status_code == 502
+    assert "RateLimitError status=429 request_id=req_abc" in caplog.text
 
 
 # --------------------------------------------------

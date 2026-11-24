@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.agents.contact_discovery_agent import contact_discovery_agent
 from app.api.deps import AuthUser, DbSession
+from app.core.logging_config import describe_exception
 from app.core.tracing import run_config, trace_metadata
 from app.models.lead import Lead
 from app.schemas.contact_discovery import (
@@ -103,7 +104,8 @@ async def discover_contacts(
     discoveries: list[ContactDiscoveryResult] = []
     for outcome in outcomes:
         if isinstance(outcome, BaseException):
-            logger.warning("A contact search failed: %r", outcome)
+            # Type and location only: the message can quote model output.
+            logger.warning("A contact search failed: %s", describe_exception(outcome))
         else:
             discoveries.append(outcome.final_output)
 
