@@ -20,8 +20,40 @@ node_modules/
 
 **/.gmail_tokens.json
 
-# Personal notes and reports, never committed
-Extra/
+# Personal study material, notes and internal reports (kept locally, never committed)
+/extra/
+
+# Private working documents (CV, LinkedIn and interview notes)
+/docs/PORTFOLIO.md
+
+# Demo videos: the current video is published as a GitHub Release asset,
+# and older versions are local backups. Only the thumbnail is committed.
+/docs/assets/video/ai-outreach-demo.mp4
+/docs/assets/video/ai-outreach-demo-v1.mp4
+/docs/assets/video/ai-outreach-demo-v2.mp4
+
+# Media not used by the public docs (kept locally): PNG renders of the
+# Mermaid diagrams (the docs render Mermaid directly), version 1 screenshots,
+# and screenshots no document links to.
+/docs/assets/diagrams/
+/docs/assets/screenshots/v1/
+/docs/assets/screenshots/demo-01-dashboard.png
+/docs/assets/screenshots/demo-02-company-products.png
+/docs/assets/screenshots/demo-03-leads.png
+/docs/assets/screenshots/demo-06-ai-review.png
+/docs/assets/screenshots/demo-07-email-draft.png
+/docs/assets/screenshots/demo-11-recheck-passed.png
+/docs/assets/screenshots/demo-12-gmail-draft-created.png
+/docs/assets/screenshots/demo-14-owner-console.png
+/docs/assets/screenshots/demo-15-owner-runs.png
+/docs/assets/screenshots/gcp-console-cloud-run.png
+/docs/assets/screenshots/gcp-monitoring.png
+/docs/assets/screenshots/github-actions-runs.png
+# Earlier app screenshots that show a real company's name and products;
+# replaced in the README by screenshots of the fictional demo data.
+/docs/assets/screenshots/app-drafts.png
+/docs/assets/screenshots/app-my-company.png
+/docs/assets/screenshots/app-new-draft.png
 
 # Output of scripts/simulate_customers.py
 simulation_results*.json

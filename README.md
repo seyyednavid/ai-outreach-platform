@@ -1,264 +1,301 @@
 # AI Outreach Platform
 
 [![CI](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/ci.yml)
+[![Deploy](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/deploy.yml/badge.svg)](https://github.com/seyyednavid/ai-outreach-platform/actions/workflows/deploy.yml)
 
-A human-in-the-loop B2B outreach assistant built with the **OpenAI Agents SDK**.
-AI agents research a target company, write a personalised email and check it against the evidence.
-A person then edits and approves the email, and the app saves it as a **Gmail draft**. Nothing is ever sent automatically.
+A human-in-the-loop B2B outreach assistant built with the **OpenAI Agents SDK**. AI agents research a target company on the web, write a personalised email and review it against the evidence. Python code enforces the rules, a person edits and approves every email, and only then is it saved as a **Gmail draft**. Nothing is ever sent automatically.
 
-**Stack:** Python · FastAPI · OpenAI Agents SDK · PostgreSQL · SQLAlchemy · Alembic · Supabase Auth · React · TypeScript · Tailwind CSS · Gmail API
+**Live demo:** [ai-outreach-frontend-759154400090.europe-west2.run.app](https://ai-outreach-frontend-759154400090.europe-west2.run.app) (sign-in required) · **Walkthrough:** [demo video](#demo-video) · **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) · [E2E test report](docs/E2E_TEST_REPORT.md)
 
-![Drafts page: an AI-written email with its review score, approval status and signature](docs/screenshots/drafts.png)
+![Drafts page: an AI-written draft with its review score, flagged claims, rewrites and approval status](docs/assets/screenshots/app-drafts-review.png)
 
-## What it does
+## Why it exists
 
-0. **Sign in:** each account has its own companies, leads, drafts and Gmail connection.
-1. **My Company:** describe what you sell and add your products, plus your signature and how emails should end (a phone call or an email reply).
-2. **Leads:** add companies you want to reach and the role you are looking for.
-3. **New draft:** pick a lead. Optionally, an agent matches the best product from your catalogue, and another searches public sources for a contact.
-4. **Generate:** agents research the company, write the email, review it and rewrite it up to twice.
-5. **Drafts:** read the review, edit the email, ask the AI to check your edits, approve it, and save it to Gmail.
+Personalised B2B emails take time to research, and AI-written ones tend to invent facts: a statistic, a customer, the recipient's job title. This project treats the model as a fast but unreliable colleague:
 
-## How the agents work
+- agents do the research and writing, and return **typed, structured output**;
+- **code, not the model,** decides whether a draft passes;
+- **a person** approves every email, and the app can only create drafts in their own Gmail.
 
-```mermaid
-flowchart TD
-    U["You choose a lead, your company,<br/>a product and a contact (both optional)"] --> CTX["Context built from PostgreSQL<br/>(catalogue facts, contact name only)"]
-    CTX --> R["Research agent<br/>web search, sourced findings"]
-    R --> W["Writer agent"]
-    W --> F["Code: add signature,<br/>keep one call to action"]
-    F --> V["Reviewer agent<br/>scores and quoted flags"]
-    V --> C{"Code checks:<br/>quote found in email?<br/>no placeholders? score ≥ 8?"}
-    C -- "fails, at most 2 times" --> I["Improver agent"]
-    I --> F
-    C -- "passes, or limit reached" --> DB[("Run saved with a snapshot<br/>of what the AI was given")]
-    DB --> H["You: edit, check edits with AI, approve"]
-    H --> G["Gmail draft<br/>(never sent automatically)"]
-```
+It is a portfolio project running as a low-cost demo, not a commercial service.
 
-Two more agents support the first step: a **solution-matching agent** that may only recommend a product ID from your catalogue (the backend rejects any other ID), and a **contact-discovery agent** that runs three focused searches in parallel: the company's leadership pages, appointment news and trade press. Traces showed that a single run usually stops after one web search, so the code makes sure the search is broad. Python then merges, de-duplicates, ranks and source-checks the results, and rejects anything that is not a named person, such as "Customer Service Team".
+## Highlights
 
-All agents return typed, structured output (Pydantic models), so the backend never parses free text.
+- **Multi-agent workflow** with six agents: research (web search), writer, reviewer, improver, product matching and contact discovery. The improvement loop is bounded (at most two rewrites).
+- **Guardrails enforced in Python:** reviewer flags must quote the email, placeholders always fail, product facts come only from the catalogue, and approving a failed draft needs an explicit override.
+- **Measured, not assumed:** the Reviewer is evaluated on 30 fixed cases with known answers.
+- **Multi-tenant SaaS basics:** Supabase login, JWT verification on every route, per-organisation data isolation, row-level security.
+- **Production-style delivery:** Docker, Terraform, Google Cloud Run, GitHub Actions CI/CD with Workload Identity Federation (no stored cloud keys), Secret Manager, structured JSON logs and Cloud Monitoring alerts.
 
-### Keeping the AI honest
+## How it works
 
-| Rule | How it is enforced |
-|---|---|
-| Product claims come only from your catalogue | Facts are read from the database, never from the browser |
-| The contact's job title is never stated as fact | Only the contact's name is given to the agents |
-| A reviewer flag must quote the email | Code drops flags whose quote is not in the email, and shows them as "ignored" |
-| No `[Your Name]`-style placeholders | Code check: always fails the review |
-| The signature is always correct | Added by code from My Company, never written by the AI |
-| A draft passes only with a score of 8 or more and no remaining flags | Code check |
-| Approving a failed draft is a conscious decision | The API refuses unless you confirm, and records the override |
-| Contact sources are checked | The page is fetched over HTTPS only (allowlisted sites and the lead's own website), with no redirects and a size limit |
-| Each account sees only its own data | One login check (`get_current_user`) on every route, and every query filters by organisation. Other accounts' records return 404 |
-| Gmail access is minimal | OAuth with PKCE and state checks, compose scope, drafts only. Tokens are stored per user, encrypted |
-
-### Tracing and cost
-
-Agents are non-deterministic, so every draft is recorded as **one trace** in the OpenAI Traces dashboard. The trace shows each agent call, web search, model response and timing. It also shows the decisions made by code: which reviewer flags were dropped, whether the review passed, and whether code changed the signature or call to action.
-
-- The trace id is saved on the run. Traces, tokens and costs are **owner data**: customers never see them, and the API does not return them to customers.
-- An AI check of your edits gets its own trace in the same group as the draft.
-- Every run stores its token usage and an estimated cost. Per-account usage limits can later build on this.
-
-### Owner Console
-
-Product owners (accounts listed in `ADMIN_EMAILS`) start in a separate **Owner Console**, and can switch to their own workspace at any time. The console has three pages:
-
-- **Overview:** customers, drafts and model cost. It also shows AI quality (pass rate, passes without a rewrite, average score) and how often code and people stepped in: reviewer flags dropped by code, placeholders, missing signatures, human edits and approvals that override a failed review.
-- **Customers:** usage and cost per customer, with each customer's runs.
-- **Runs:** the latest runs of every customer, each linked to its trace.
-
-The console shows usage, never email content. For everyone else, the owner routes return 404.
-
-![Owner Console overview: customers, drafts, model cost, AI quality and guardrail statistics](docs/screenshots/owner-overview.png)
-
-| Customers | Runs |
-|---|---|
-| ![Usage and estimated cost per customer](docs/screenshots/owner-customers.png) | ![Latest runs across customers with score, approval status, cost and trace links](docs/screenshots/owner-runs.png) |
-
-*The `[Demo]` customers were created by the simulation script (below). Email addresses are anonymised.*
-- `TRACE_INCLUDE_SENSITIVE_DATA=false` keeps email text and names out of traces.
-- Tests disable tracing, so they never send data to OpenAI.
-
-The SDK's built-in tracing needs no extra infrastructure. Because the SDK supports trace processors, Langfuse or OpenTelemetry can be added later without changing the workflow code.
-
-## Screenshots
+1. **My Company:** describe what you sell, add products, and set your signature and how emails should end.
+2. **Leads:** add companies to contact and the role you want to reach.
+3. **New draft:** pick a lead. Optionally, an agent picks the best product from your catalogue and another searches public sources for a named contact.
+4. **Generate:** agents research the company, write the email, review it and, if needed, improve it.
+5. **Drafts:** read the review, edit the email, ask the AI to re-check your edits, approve, and save it to Gmail.
 
 | New draft | My Company |
 |---|---|
-| ![New draft: five steps and a run brief](docs/screenshots/new-draft.png) | ![My Company: profile, signature and product catalogue](docs/screenshots/my-company.png) |
+| ![New draft: choose the lead and your company, with a run brief of what the AI will use](docs/assets/screenshots/app-new-draft-brief.png) | ![My Company: signature and product catalogue with two demo products](docs/assets/screenshots/app-my-company-products.png) |
 
 *Names and contact details in the screenshots are anonymised.*
 
-## Run with Docker (one command)
+## Demo video
 
-**You need:** Docker Desktop, an OpenAI API key and a free [Supabase](https://supabase.com) project (used only for login).
+[![Demo video: AI Outreach Platform, a 4-minute narrated walkthrough of the live app](docs/assets/video/ai-outreach-demo-thumbnail.png)](https://github.com/seyyednavid/ai-outreach-platform/releases/tag/v1.0.0)
+
+**[Watch the 4½-minute narrated walkthrough](https://github.com/seyyednavid/ai-outreach-platform/releases/tag/v1.0.0)** ([download the MP4](https://github.com/seyyednavid/ai-outreach-platform/releases/download/v1.0.0/ai-outreach-demo.mp4), 34 MB): a real recording of the deployed app. A fictional seller researches a real company (Superdrug, via its website); the agents match a product, find sourced contacts and draft an email; one research figure turns out not to be on its cited page, which is why a person checks sources; a human edit with an invented statistic is flagged and approval is blocked until every claim is fixed; the approved draft is then opened in Gmail. It ends with the Owner Console, the architecture, CI/CD, and Cloud Monitoring and Logging, including this demo's own requests and OpenAI calls in the logs. Timings and narration: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+Screens from that run (24 Nov 2026, see the [E2E test report](docs/E2E_TEST_REPORT.md)):
+
+| Product matching | Contact discovery (names blurred) | Research with sources (one needs checking) |
+|---|---|---|
+| ![The matching agent recommends FlowGuide from two products, medium confidence, need not confirmed](docs/assets/screenshots/demo-04-product-matching.png) | ![Contact discovery: named contacts with job titles, sources and "Needs review" status](docs/assets/screenshots/demo-05-contact-discovery.png) | ![Research on Superdrug with source links; the store and pharmacy figure is not on its cited page](docs/assets/screenshots/demo-08-research-sources.png) |
+| **Reviewer flags unsupported claims** | **Approval blocked while flagged** | **The approved draft in Gmail** |
+| ![The reviewer flags an invented statistic and an unsupported opinion, quoting each](docs/assets/screenshots/demo-09-flagged-claims.png) | !["Approve anyway" stays locked; normal approval is unavailable](docs/assets/screenshots/demo-10-approval-blocked.png) | ![The draft opened in Gmail Drafts, addressed to a demo recipient](docs/assets/screenshots/demo-13-draft-in-gmail.png) |
+
+## Multi-agent workflow
+
+```mermaid
+flowchart TD
+    U["User picks a lead, and optionally a product and a contact"] --> CTX["Backend builds the context from PostgreSQL<br/>catalogue facts · contact name only"]
+    CTX --> R["Research agent<br/>web search · sourced findings"]
+    R --> W["Writer agent"]
+    W --> F["Code: add the signature,<br/>keep one call to action"]
+    F --> V["Reviewer agent<br/>scores · flagged claims with quotes"]
+    V --> C{"Code checks<br/>score ≥ 8 · flag quotes exist in the email<br/>no placeholders · no flags left"}
+    C -- "fails, at most 2 times" --> I["Improver agent"]
+    I --> F
+    C -- "passes, or limit reached" --> S[("Run saved with a snapshot<br/>of the context, trace id, tokens and cost")]
+    S --> H["Human: edit · ask the AI to re-check · approve<br/>approving a failed draft needs an explicit override"]
+    H --> G["Gmail draft in the user's mailbox<br/>never sent automatically"]
+```
+
+**What the AI recommends:** research findings with sources, the email text, review scores, flagged claims with quotes, a product choice, candidate contacts.
+
+**What the backend enforces:**
+
+| Rule | How |
+|---|---|
+| Product claims come only from your catalogue | Facts are read from the database; a product ID outside the catalogue is rejected |
+| The contact's job title is never stated as fact | Only the contact's name reaches the agents |
+| A reviewer flag must quote the email | Flags whose quote is not in the email are dropped and shown as "ignored" |
+| No `[Your Name]`-style placeholders | Always fails the review |
+| The signature is correct | Added by code from My Company, never written by the AI |
+| A draft passes only with score ≥ 8 and no remaining flags | Code check; the reviewer's own `approved` field is stored but not used |
+| Improvement is bounded | At most two improver runs, each followed by a new review |
+| Approving a failed draft is deliberate | The API refuses unless you confirm, and records the override |
+| Gmail is a separate, human step | Drafts require approval; OAuth uses PKCE and a drafts-only scope |
+
+Agents run through the SDK's `Runner` with typed `output_type` models; research and contact discovery use the hosted web search tool. Contact discovery runs three focused searches in parallel, then Python merges, de-duplicates, ranks and source-checks the results. Every draft is **one trace** in the OpenAI Traces dashboard, including the code's decisions; traces exclude prompts and email text in production.
+
+### Reviewer evaluation
+
+The Reviewer decides whether a draft passes, so it is measured. [`backend/evals/reviewer_cases.py`](backend/evals/reviewer_cases.py) holds 30 cases at a fictional company: 16 emails with one planted problem (an invented statistic, customer or award, the recipient's job title, a feature not in the catalogue, a placeholder…) and 14 emails whose extra sentence the evidence supports. The script runs the real Reviewer and the real code checks three times per case.
+
+| Reviewer | Problems caught | False alarms | Same result in all 3 runs |
+|---|---|---|---|
+| Before prompt changes (gpt-4.1-mini) | 60% | 0% | 23 / 30 |
+| **Current** (gpt-4.1-mini), re-run 24 Nov 2026 | **81%** | **0%** | **28 / 30** |
+| gpt-4.1, same prompt | 94% | 52% | 29 / 30 |
+
+The larger model caught more problems but rejected half of the correct emails, so gpt-4.1-mini stays, and a person still reviews every email. One run costs about $0.10 (measured: $0.097, 28.5 s). It also runs as a manual GitHub Actions workflow that fails below 75% caught or above 10% false alarms.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    user(["User's browser"])
+
+    subgraph run["Google Cloud Run · London (europe-west2)"]
+        direction LR
+        fe["Frontend<br/>React + Vite on nginx"]
+        be["Backend API<br/>FastAPI + OpenAI Agents SDK"]
+        job["Migration job<br/>Alembic, started by hand"]
+    end
+
+    subgraph gcp["Google Cloud services"]
+        direction LR
+        sm[("Secret Manager")]
+        obs["Cloud Logging<br/>Cloud Monitoring"]
+    end
+
+    subgraph supa["Supabase · London"]
+        direction LR
+        auth["Auth"]
+        db[("PostgreSQL 17")]
+    end
+
+    subgraph ext["External APIs"]
+        direction LR
+        openai["OpenAI<br/>agents · web search · traces"]
+        gmail["Google OAuth<br/>Gmail API: drafts only"]
+    end
+
+    user -->|"loads the app"| fe
+    user -->|"signs in"| auth
+    user -->|"REST + JWT"| be
+    be -->|"verifies JWT"| auth
+    be --> db
+    job --> db
+    be --> openai
+    be --> gmail
+    sm -.->|"secrets"| be
+    be -.->|"JSON logs · health checks"| obs
+```
+
+The delivery pipeline and component details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Tech stack
+
+| Layer | Technologies |
+|---|---|
+| AI | OpenAI Agents SDK, gpt-4.1-mini, hosted web search, Pydantic structured outputs, OpenAI Traces |
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PyJWT, Google API client, uv |
+| Data and auth | PostgreSQL 17 (Supabase, row-level security), Supabase Auth |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, React Router 7 |
+| Infrastructure | Docker, Google Cloud Run, Artifact Registry, Secret Manager, Terraform |
+| CI/CD | GitHub Actions, Workload Identity Federation |
+| Observability | Structured JSON logs in Cloud Logging, Cloud Monitoring uptime check and alerts, per-run token and cost tracking |
+
+## Owner Console
+
+Product owners (`ADMIN_EMAILS`) get a separate console showing usage, never email content: customers, drafts, model cost, AI quality (pass rate, passes without a rewrite, average score) and how often code and people stepped in. Each run links to its trace. For everyone else these routes return 404.
+
+![Owner Console overview: customers, drafts, model cost, AI quality and guardrail statistics](docs/assets/screenshots/app-owner-overview.png)
+
+| Customers | Runs |
+|---|---|
+| ![Usage and estimated cost per customer](docs/assets/screenshots/app-owner-customers.png) | ![Latest runs across customers with score, approval status, cost and trace links](docs/assets/screenshots/app-owner-runs.png) |
+
+*The `[Demo]` customers were created by the simulation script. Email addresses are anonymised.*
+
+## Deployment and CI/CD
+
+A push to `main` runs **CI** (Ruff, 193 pytest tests, ESLint, type check, build, Docker builds). When it passes, **Deploy** builds both images from that commit, signs in to Google Cloud through **Workload Identity Federation**, pushes to Artifact Registry and rolls out new Cloud Run revisions, then checks both services. Only the image changes: settings, secrets, scaling and IAM stay as Terraform defined them. Database migrations are never automatic; CD updates the migration job's image and a person runs it.
+
+![Deploy workflow: build, Workload Identity Federation login, push, migration job update, deploy and health checks](docs/assets/screenshots/github-deploy-steps.png)
+
+| CI run | Cloud Run, migration job and images |
+|---|---|
+| ![CI: backend, frontend and Docker jobs all passing](docs/assets/screenshots/github-ci-run.png) | ![gcloud output: both services on the same commit, migration job and image tags](docs/assets/screenshots/gcp-cloud-run.png) |
+
+Terraform in [`infra/terraform`](infra/terraform) manages 37 Google Cloud resources: Cloud Run services and job, Artifact Registry, Secret Manager, service accounts with least-privilege IAM, Workload Identity Federation and monitoring. Details, IAM table, rollback and troubleshooting: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Logging and monitoring
+
+- **Structured JSON logs:** on Cloud Run every log line is a JSON object with severity, logger and source location, and tracebacks stay in one entry. A redaction filter removes tokens, keys, OAuth codes and database passwords; AI errors are logged by type and location, never by message; SQL parameters are hidden.
+- **Uptime check:** `GET /api/v1/health/ready` (API and database) every 5 minutes from three regions.
+- **Alerts by email:** backend unavailable from two or more regions, or any 5xx response.
+
+| Cloud Run metrics | Logs Explorer: one "Generate draft" and its three OpenAI calls |
+|---|---|
+| ![Backend request count by status class and latency percentiles in Cloud Run](docs/assets/screenshots/gcp-console-metrics.png) | ![Logs Explorer: POST /api/v1/outreach/run, 200 in 8.6 s, and the research, writer and reviewer calls to the OpenAI Responses API](docs/assets/screenshots/gcp-console-logs-generate.png) |
+| **Uptime check** | **Alert policies** |
+| ![Uptime check on /api/v1/health/ready passing from Europe and North America](docs/assets/screenshots/gcp-console-uptime.png) | !["Backend 5xx errors" and "Backend unavailable" alert policies](docs/assets/screenshots/gcp-console-alerts.png) |
+
+More from the demo run: [its POST/PUT requests](docs/assets/screenshots/gcp-console-logs.png) (edits, AI re-checks, approval, Gmail draft) and [one request as a structured entry](docs/assets/screenshots/gcp-console-log-entry.png) (path, status, latency; client IP and service host blurred). An application log entry with severity, logger and source location is shown in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#logging).
+
+## Security
+
+- **No stored cloud keys:** GitHub Actions uses Workload Identity Federation, limited to this repository, `main` and the `production` environment.
+- **Least privilege:** each Cloud Run service has its own service account; the backend can read only its four secrets, and the frontend has no permissions. The deployer can push images and update revisions, but cannot read secrets or change IAM.
+- **Secrets** live in Secret Manager and are never in images, Terraform or Git.
+- **Authentication:** Supabase Auth; the backend checks each token's signature, expiry, audience and issuer, and every query filters by organisation. Other accounts' records return 404.
+- **Database:** row-level security on every table blocks Supabase's public Data API; only the backend reads the data.
+- **Gmail:** OAuth with PKCE and a one-time state, `gmail.compose` scope, drafts only; tokens are encrypted at rest.
+- **Logs and traces** exclude tokens, OAuth codes, prompts and email text.
+- **Containers:** the backend runs as a non-root user; scripts and evaluations are not in the production image.
+
+## Run it locally
+
+**You need:** Docker Desktop, an OpenAI API key and a free [Supabase](https://supabase.com) project (used for login).
 
 ```bash
 cp backend/.env.example backend/.env       # then fill in the values
 cp frontend/.env.example frontend/.env     # Supabase URL and publishable key
-docker compose up --build                  # first build takes a few minutes
+docker compose up --build                  # database, migrations, backend, frontend
 ```
 
-Open **http://localhost:8080**. The API is on http://127.0.0.1:8000/docs. Stop with `docker compose down`; the data stays in a Docker volume.
+Open **http://localhost:8080** (API docs: http://127.0.0.1:8000/docs). In Supabase, add `http://localhost:8080/**` to the redirect URLs.
 
-| Service | Image | What it does |
-|---|---|---|
-| `db` | `postgres:17` | The database |
-| `migrate` | backend image | Runs `alembic upgrade head` once, then stops |
-| `backend` | `backend/Dockerfile` (Python 3.12, uv, non-root user) | FastAPI, agents; healthy once `/api/v1/health/ready` answers |
-| `frontend` | `frontend/Dockerfile` (built with Node, served by nginx) | The website |
+<details>
+<summary><b>Development setup without Docker for the app</b></summary>
 
-They start in order: database healthy → migrations finished → backend healthy → frontend. Secrets are read from `backend/.env` when the containers start and are never copied into an image. `frontend/.env` holds only public values, which Vite builds into the browser code.
-
-In Supabase, add `http://localhost:8080/**` to the redirect URLs so that sign-up confirmation links open the Docker frontend.
-
-## Run it locally (for development)
-
-**You need:** Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+, Docker Desktop, an OpenAI API key and a free [Supabase](https://supabase.com) project (used only for login).
+**You need:** Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+ and Docker Desktop (database only).
 
 ```bash
-# 1. Database only (PostgreSQL 17 on 127.0.0.1:5433)
-docker compose up -d db
+docker compose up -d db                   # PostgreSQL 17 on 127.0.0.1:5433
 
-# 2. Backend: http://127.0.0.1:8000/docs
 cd backend
-cp .env.example .env              # then fill in the values
+cp .env.example .env                      # then fill in the values
 uv sync
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload      # http://127.0.0.1:8000/docs
 
-# 3. Frontend: http://localhost:5173 (in a second terminal)
-cd frontend
-cp .env.example .env              # Supabase URL and publishable key
+cd ../frontend                            # in a second terminal
+cp .env.example .env
 npm install
-npm run dev
+npm run dev                               # http://localhost:5173
 ```
 
 On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
-**Supabase (login).** Create a project. In **Authentication → URL Configuration**, set the Site URL to `http://localhost:5173` and add `http://localhost:5173/**` as a redirect URL. Copy the Project URL into both `.env` files and the publishable key into `frontend/.env`. The backend checks tokens with the project's public signing keys, so no Supabase secret is stored anywhere.
+**Supabase:** in Authentication → URL Configuration, set the Site URL to `http://localhost:5173` and add `http://localhost:5173/**` as a redirect URL. The backend checks tokens with the project's public signing keys, so no Supabase secret is stored.
 
-**Gmail (optional).** In Google Cloud, enable the Gmail API and create an OAuth client of type *Web application*. Add `http://127.0.0.1:8000/api/v1/gmail/callback` as a redirect URI, put the client ID and secret in `backend/.env`, then click **Connect Gmail** in the app. Without these steps, everything except Gmail still works.
+**Gmail (optional):** enable the Gmail API in Google Cloud, create an OAuth client of type *Web application*, add `http://127.0.0.1:8000/api/v1/gmail/callback` as a redirect URI, and put the client ID and secret in `backend/.env`. Everything except Gmail works without this.
 
-**First use:** create an account and confirm your email, then add your company, a product and your signature in **My Company**, add a lead in **Leads**, then open **New draft**.
+**Demo data:** `uv run python -m scripts.simulate_customers` creates `[Demo]` customers and drives the real agents through the same route functions the browser uses (`--cleanup` removes them).
 
-**Health checks:** `GET /api/v1/health` reports that the server is running. `GET /api/v1/health/ready` also checks the database and returns 503 when it is unreachable.
+</details>
 
-## Simulating customers
-
-`backend/scripts/simulate_customers.py` creates demo customers, each with its own seller company, products, signature and leads. Ten of the leads are real public companies and two are fictional. The script then drives the same route functions the browser uses, with the **real agents**: product matching, contact discovery, draft generation, a human edit that adds an unsupported claim, the AI check of that edit, and approval. The results appear in the Owner Console and in the traces.
-
-```bash
-cd backend
-uv run python -m scripts.simulate_customers --customers 1 --leads 1   # smoke test
-uv run python -m scripts.simulate_customers                            # 4 customers, 12 drafts
-uv run python -m scripts.simulate_customers --cleanup                  # delete all demo data
-```
-
-Demo customers are named `[Demo] …` and cannot sign in. A full run costs well under $1 in model tokens, plus web search fees.
-
-## Evaluating the Reviewer
-
-The Reviewer decides whether a draft passes, so its judgement is measured, not assumed. `backend/evals/reviewer_cases.py` holds **30 fixed cases with known answers**, set at a fictional pharmacy chain so the model can only use the evidence it is given:
-
-- 16 emails with one planted problem: an invented statistic, customers, award or certification; the recipient's job title; a past meeting that never happened; a wrong number; a feature or integration not in the catalogue; stronger wording than the evidence; a placeholder.
-- 14 emails whose extra sentence the evidence supports: rounded numbers, catalogue features, research facts and hedged benefits.
-
-The script runs the real Reviewer and the real code checks on every case, three times:
-
-```bash
-cd backend
-uv run python -m scripts.evaluate_reviewer                     # about 35 s, about $0.10
-uv run python -m scripts.evaluate_reviewer --model gpt-4.1     # compare another model
-uv run python -m scripts.evaluate_reviewer --min-catch 0.75 --max-false-alarm 0.1   # fails below the bar
-```
-
-| Reviewer | Problems caught | False alarms | Same result in all 3 runs |
-|---|---|---|---|
-| Before (gpt-4.1-mini) | 60% | 0% | 23 / 30 |
-| **After** (gpt-4.1-mini) | **81%** | **0%** | **30 / 30** |
-| gpt-4.1, same prompt | 94% | 52% | 29 / 30 |
-
-What changed:
-
-- The Reviewer checks sentence by sentence, and wording stronger than the evidence counts as unsupported.
-- It runs at temperature 0.
-- It no longer sees the code-added signature. The evaluation found it flagging the sender's own job title.
-- All agents now receive today's date, so a launch "in 2026" can be called recent.
-
-The prompt's examples are deliberately different from the test cases, so the score measures generalisation rather than memorised answers.
-
-The larger model caught more problems but rejected half of the correct emails, so gpt-4.1-mini stays. The remaining misses are subtle overstatements: "integrates seamlessly" for "works alongside", "in a single day" for "under a week", and a named EPOS integration. A person still reviews every email.
-
-## Tests
-
-Agent and Gmail calls are mocked, so the tests cost nothing and need no API keys.
+## Testing
 
 ```bash
 docker exec ai-outreach-db createdb -U outreach outreach_test_db   # once
 
 cd backend
 uv run ruff check .
-uv run python -m pytest            # 146 tests
+uv run pytest                     # 193 tests
 
 cd ../frontend
 npm run lint
 npm run build
 ```
 
-The tests cover the agent workflow and the reviewer guardrails. They also include API integration tests for context building, product ownership, approval rules, run numbering, and lead editing and deletion. Other tests check that Gmail drafts require human approval and that forged, expired or wrong-project login tokens are rejected. They also check that one account can never read, change or approve another account's records, or run agents on them.
+Agent, OpenAI and Gmail calls are mocked, so the tests cost nothing and need no API keys. They cover the agent workflow and its guardrails, API integration (context building, product ownership, approval rules, run numbering), Gmail draft rules, token verification (forged, expired or wrong-project tokens), tenant isolation, row-level security coverage, structured logging and redaction, and Gmail OAuth failure handling.
 
-## Continuous integration
+Reviewer evaluation (calls OpenAI, about $0.10): `uv run python -m scripts.evaluate_reviewer`.
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
-
-| Job | What it checks |
-|---|---|
-| Backend | `ruff check`, migrations on an empty PostgreSQL 17, the 146 tests |
-| Frontend | `eslint`, type check and production build |
-| Docker | both images build (only after the two jobs above pass) |
-
-CI uses placeholder keys only: the tests never call OpenAI, Google or Supabase.
-The Reviewer evaluation calls OpenAI, so it has its own workflow ([`reviewer-eval.yml`](.github/workflows/reviewer-eval.yml)) that is started by hand from the Actions tab. It fails below 75% caught or above 10% false alarms, and needs the repository secret `OPENAI_API_KEY`.
+**End-to-end on the deployed app:** two Playwright-driven runs through the real UI, Gmail and Google Cloud Console (demo data, product matching, contact discovery, generation, flagged human edits, blocked approval, approval and a Gmail draft opened in Gmail) passed; results, timings and findings, including a mis-cited research figure and Reviewer non-determinism, are in the [E2E test report](docs/E2E_TEST_REPORT.md).
 
 ## Project structure
 
 ```
 backend/
-  app/agents/       research, writer, reviewer, improver, matching, contact discovery
-  app/workflows/    the outreach pipeline and its code checks
-  app/services/     database logic, source checks, Gmail
-  app/api/routes/   FastAPI endpoints
-  scripts/          customer simulation and the Reviewer evaluation
-  evals/            fixed evaluation cases with known answers
-  alembic/          database migrations
-  docker/           container-only settings
-  test/             pytest suite
-frontend/src/
-  pages/            Dashboard, My Company, Leads, New draft, Drafts, Owner Console
-  components/       shared UI and review components
-docs/screenshots/
-.github/workflows/  CI and the Reviewer evaluation
+  app/agents/        research, writer, reviewer, improver, matching, contact discovery
+  app/workflows/     the outreach pipeline and its code checks
+  app/services/      database logic, source checks, Gmail
+  app/api/routes/    FastAPI endpoints
+  app/core/          settings, auth, database, logging, tracing
+  alembic/           database migrations
+  evals/ scripts/    Reviewer evaluation cases, evaluation and simulation scripts
+  test/              pytest suite
+frontend/src/        pages, components and API client (React + TypeScript)
+infra/terraform/     Google Cloud infrastructure
+.github/workflows/   CI, Deploy and Reviewer evaluation
+docs/                architecture, deployment, E2E report, demo script, portfolio notes, assets
 ```
-
-## Security
-
-- `backend/.env` and `frontend/.env` are git-ignored. Only `.env.example` files with placeholders are committed.
-- Login is handled by Supabase Auth. The backend never sees passwords. It checks each request's token: signature, expiry, audience and issuer.
-- Gmail OAuth tokens are stored per user in PostgreSQL, encrypted with `TOKEN_ENCRYPTION_KEY`.
-- The database password in `compose.yaml` is for local development only. All ports are bound to `127.0.0.1`, so nothing is reachable from other computers.
-- CORS allows `localhost` for development and only the addresses listed in `CORS_ORIGINS` once deployed.
 
 ## Limitations and next steps
 
-This is an MVP: one user per organisation (no teams or roles yet), no password reset page yet, and generation runs inside the web request (about 15–30 seconds).
-It runs locally only: the app and the confirmation emails point to `localhost`, so other people can sign up but cannot use it until it is deployed.
-Every account uses the server's OpenAI key, so before deploying, turn off public sign-ups in Supabase and invite testers, or add per-account usage limits.
-Contact discovery is best-effort, and every contact must be reviewed by a person.
-Before any commercial use, finding contacts and sending cold emails must comply with UK GDPR and PECR.
+- One user per organisation (no teams or roles yet) and no password-reset page.
+- Generation runs inside the web request; a background job queue is the natural next step.
+- Gmail OAuth state is kept in memory, so the backend runs as a single instance.
+- Contact discovery is best-effort, and every contact must be reviewed by a person.
+- Research can confuse companies with similar names when a lead has no website; adding the website gives the agent an unambiguous target (see the E2E report).
+- Every account uses the server's OpenAI key; per-account usage limits would be needed before wider use.
+- Finding contacts and sending cold emails must comply with UK GDPR and PECR before any commercial use.
 
-**Next:** Terraform deployment · background jobs · per-account usage limits · Langfuse or OpenTelemetry export · an evaluation set for draft quality.
+**Next:** background jobs · per-account usage limits · an evaluation set for draft quality · Langfuse or OpenTelemetry export.
